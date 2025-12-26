@@ -21,6 +21,10 @@ class DiscoveryAgent:
                 ...
             ]
         }
+        
+        IMPORTANT: Limit to 3-5 distinct categories.
+        For each category, provide ONLY 3-4 high-value keywords.
+        Do NOT overwhelm the user with too many options.
         """
         user_prompt = f"""
         ICP: {', '.join(input_data.icp_profile)}
