@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pydantic
+openai
+httpx
+beautifulsoup4
+python-multipart
+python-dotenv
+duckduckgo-search
