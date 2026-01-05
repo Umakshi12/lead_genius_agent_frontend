@@ -18,7 +18,7 @@ export default function DiscoveryPage() {
     const [inputData, setInputData] = useState<any>(null);
 
     useEffect(() => {
-        const stored = localStorage.getItem('leadGenius_analysis');
+        const stored = localStorage.getItem('Oceanic6_analysis');
         if (!stored) {
             router.push('/');
             return;
@@ -28,8 +28,8 @@ export default function DiscoveryPage() {
 
         const fetchKeywords = async () => {
             try {
-                const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-                const res = await fetch(`${baseUrl}/keywords`, {
+                const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+                const res = await fetch(`${baseUrl}/api/keywords`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(input)
@@ -62,13 +62,13 @@ export default function DiscoveryPage() {
     const generateStrategy = async () => {
         setAnalyzingStrategy(true);
         try {
-            const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+            const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
             const payload = {
                 selected_keywords: selectedKeywords,
                 company_summary: inputData.company_summary,
                 target_industries: inputData.target_industries
             };
-            const res = await fetch(`${baseUrl}/strategy`, {
+            const res = await fetch(`${baseUrl}/api/strategy`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -126,7 +126,7 @@ export default function DiscoveryPage() {
 
                 <div className="text-center">
                     <button onClick={() => {
-                        localStorage.setItem('leadGenius_strategy', JSON.stringify({
+                        localStorage.setItem('Oceanic6_strategy', JSON.stringify({
                             channels: strategyResult.channels,
                             keywords: selectedKeywords,
                             ...inputData

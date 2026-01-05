@@ -8,6 +8,18 @@ class CompanyInput(BaseModel):
     existing_customers: Optional[str] = None
 
 
+class CompanyLookupRequest(BaseModel):
+    """Request schema for company lookup"""
+    company_name: str = Field(description="Name of the company to look up")
+
+
+class CompanyLookupResponse(BaseModel):
+    """Response schema for company lookup"""
+    website: Optional[str] = Field(default=None, description="Official website URL of the company")
+    industry: Optional[str] = Field(default=None, description="Industry/sector the company operates in")
+    error: Optional[str] = Field(default=None, description="Error message if lookup failed")
+
+
 class ResearchResult(BaseModel):
     company_name: str
     company_summary: str = Field(description="Structured summary of the company")
@@ -19,13 +31,25 @@ class ResearchResult(BaseModel):
     sources: List[str] = Field(description="List of sources used for verification")
     confidence_score: float = Field(description="Confidence score 0.0 to 1.0")
     
-    # Social Media Profiles (auto-fetched from website)
+    # Contact Information (auto-fetched from website)
+    main_address: Optional[str] = Field(default=None, description="Company's main/headquarters address")
+    phone_numbers: List[str] = Field(default=[], description="Company phone numbers")
+    email_addresses: List[str] = Field(default=[], description="Company email addresses")
+    branches: List[dict] = Field(default=[], description="Branch/office locations with contact info")
+    
+    # Social Media Profiles (auto-fetched from website footer)
     linkedin_url: Optional[str] = None
     twitter_url: Optional[str] = None
     facebook_url: Optional[str] = None
     instagram_url: Optional[str] = None
     youtube_url: Optional[str] = None
     github_url: Optional[str] = None
+    whatsapp_url: Optional[str] = None
+    tiktok_url: Optional[str] = None
+    pinterest_url: Optional[str] = None
+    snapchat_url: Optional[str] = None
+    threads_url: Optional[str] = None
+    tripadvisor_url: Optional[str] = None
 
 
 class DiscoveryInput(BaseModel):
@@ -79,8 +103,11 @@ class PersonContact(BaseModel):
     phone: Optional[str] = None
     linkedin_url: Optional[str] = None
     twitter_url: Optional[str] = None
-    confidence_score: float = Field(default=0.0, description="Confidence in data accuracy 0.0-1.0")
-    data_source: str = Field(default="public_search", description="Source of the data")
+    facebook_url: Optional[str] = None
+    instagram_url: Optional[str] = None
+    whatsapp_number: Optional[str] = None
+    data_source: str = Field(default="website_scrape", description="Source of the data")
+
 
 class CompanyLead(BaseModel):
     company_name: str
@@ -89,11 +116,19 @@ class CompanyLead(BaseModel):
     company_size: Optional[str] = None
     location: Optional[str] = None
     
+    # Address Information
+    main_address: Optional[str] = None
+    headquarters: Optional[str] = None
+    branches: List[dict] = []  # [{name, address, phone, email}]
+    
     # Social Media
     linkedin_url: Optional[str] = None
     twitter_url: Optional[str] = None
     facebook_url: Optional[str] = None
     instagram_url: Optional[str] = None
+    youtube_url: Optional[str] = None
+    whatsapp_url: Optional[str] = None
+    tiktok_url: Optional[str] = None
     
     # Contact Info
     email_addresses: List[str] = []
@@ -109,6 +144,7 @@ class CompanyLead(BaseModel):
     enrichment_status: str = Field(default="pending", description="pending, enriched, failed")
     data_sources: List[str] = []
     discovered_at: str = Field(description="ISO timestamp")
+
 
 class LeadGenerationResult(BaseModel):
     total_leads: int

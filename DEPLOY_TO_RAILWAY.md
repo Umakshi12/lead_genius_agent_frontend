@@ -1,4 +1,4 @@
-# Deploying LeadGenius to Railway
+# Deploying Oceanic6 to Railway
 
 This project is a monorepo containing both the Frontend (Next.js) and Backend (FastAPI). To deploy on Railway, you will create two separate services from this same repository.
 
@@ -14,7 +14,7 @@ This project is a monorepo containing both the Frontend (Next.js) and Backend (F
     *   (Optional) `PORT`: Railway sets this automatically, but our code is ready to listen on it.
 4.  **Networking**:
     *   Go to **Settings** -> **Networking** -> **Public Networking**.
-    *   Click **Generate Domain**. You will get a URL like `https://leadgenius-backend-production.up.railway.app`. Copy this.
+    *   Click **Generate Domain**. You will get a URL like `https://Oceanic6-backend-production.up.railway.app`. Copy this.
 
 ## 2. Deploying the Frontend (Next.js)
 
@@ -25,7 +25,7 @@ This project is a monorepo containing both the Frontend (Next.js) and Backend (F
 3.  **Variables**:
     *   Go to **Variables**.
     *   Add `NEXT_PUBLIC_API_URL`: Paste the Backend URL you copied earlier, appending `/api`.
-        *   Example: `https://leadgenius-backend-production.up.railway.app/api`
+        *   Example: `https://Oceanic6-backend-production.up.railway.app/api`
 4.  **Deploy**: Railway will build and deploy the frontend.
 5.  **Networking**: Generate a domain for the frontend to access your app.
 

@@ -22,6 +22,7 @@ class ResearchAgent:
         
         content = ""
         social_media_links = {}
+        contact_info = {}
         
         if url:
             print(f"Scraping {url}...")
@@ -30,6 +31,10 @@ class ResearchAgent:
             # STEP 1: Extract social media links directly from HTML
             print(f"Extracting social media links from {url}...")
             social_media_links = await self.scraper.extract_social_media_links(url)
+            
+            # STEP 1.5: Extract contact info (addresses, phones, emails, branches)
+            print(f"Extracting contact information from {url}...")
+            contact_info = await self.scraper.extract_contact_info(url)
         
         if not content:
             print("Content fetch failed or empty.")
@@ -57,13 +62,17 @@ class ResearchAgent:
         Extract the following fields in JSON format:
         - company_summary: A comprehensive summary based on website AND social media presence. 
           Include insights from their social media activity, recent posts, engagement style, brand voice, and company culture.
-        - icp_profile: A list of Ideal Customer Profiles (e.g. "Enterprise SaaS Companies", "Dental Clinics").
-        - target_industries: A list of industries they target.
-        - target_companies: A list of SIMILAR companies to their existing customers (NOT the same companies). 
-          Analyze the existing customers' characteristics (background, vision, mission, products, service areas, valuation, company size) 
-          and suggest peer/competitor companies with similar profiles.
+        - icp_profile: A list of Ideal Customer Profiles - types of businesses/organizations that would BUY from this company 
+        - target_industries: A list of industries where their CUSTOMERS operate (NOT the company's own industry).
+        - target_companies: A list of SPECIFIC REAL COMPANY NAMES that are POTENTIAL CUSTOMERS - businesses that could 
+          BUY this company's products/services. These should be PROSPECTS, not competitors!
+          For example: If analyzing a countertop supplier, list construction companies, design firms, builders, 
+          renovation contractors - NOT other countertop brands like Caesarstone or Cambria.
+          Provide 5-10 real company names that match the ICP profile.
         - usp: Their Unique Selling Proposition (consider both website and social media messaging).
         - pain_points: A list of customer pain points they address.
+        
+        CRITICAL: target_companies must be POTENTIAL BUYERS/CUSTOMERS, not competitors or similar businesses!
         
         Use insights from social media to enrich your understanding of:
         - Company culture, values, and brand personality
@@ -81,10 +90,14 @@ class ResearchAgent:
         Analyze this company:
         Name: {input_data.company_name}
         Industry: {input_data.industry}
-        Existing Customers (analyze their profiles to find SIMILAR companies, not these exact ones): {input_data.existing_customers}
+        Existing Customers (use these as reference to find MORE companies like them): {input_data.existing_customers}
         
-        For target_companies: If existing customers are provided, identify companies that are SIMILAR to them (peers, competitors, companies with similar business models, size, or market position). 
-        If no existing customers are provided, suggest example companies that would fit the company's target profile.
+        IMPORTANT for target_companies field:
+        - These should be POTENTIAL CUSTOMERS / PROSPECTS - companies that could BUY from {input_data.company_name}
+        - DO NOT list competitors or companies in the same business as {input_data.company_name}
+        - If existing customers are mentioned, find OTHER companies similar to those customers
+        - If no existing customers provided, suggest real company names that match the ICP profiles
+        
         
         === WEBSITE CONTENT ===
         {content[:5000]}
@@ -121,13 +134,24 @@ class ResearchAgent:
                 pain_points=data.get("pain_points", []),
                 sources=[url] if url else ["No source found"],
                 confidence_score=0.85 if content else 0.4,
-                # Use directly extracted social media links (more reliable than LLM extraction)
+                # Contact information (auto-extracted from website)
+                main_address=contact_info.get("main_address"),
+                phone_numbers=contact_info.get("phone_numbers", []),
+                email_addresses=contact_info.get("email_addresses", []),
+                branches=contact_info.get("branches", []),
+                # Social media links (auto-extracted from website footer)
                 linkedin_url=social_media_links.get("linkedin_url"),
                 twitter_url=social_media_links.get("twitter_url"),
                 facebook_url=social_media_links.get("facebook_url"),
                 instagram_url=social_media_links.get("instagram_url"),
                 youtube_url=social_media_links.get("youtube_url"),
-                github_url=social_media_links.get("github_url")
+                github_url=social_media_links.get("github_url"),
+                whatsapp_url=social_media_links.get("whatsapp_url"),
+                tiktok_url=social_media_links.get("tiktok_url"),
+                pinterest_url=social_media_links.get("pinterest_url"),
+                snapchat_url=social_media_links.get("snapchat_url"),
+                threads_url=social_media_links.get("threads_url"),
+                tripadvisor_url=social_media_links.get("tripadvisor_url")
             )
         except Exception as e:
             print(f"Error in LLM analysis: {e}")

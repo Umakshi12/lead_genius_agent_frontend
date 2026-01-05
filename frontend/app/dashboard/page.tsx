@@ -9,7 +9,7 @@ export default function Dashboard() {
     useEffect(() => {
         // Mock loading from local storage
         // In a real app, this would come from the backend DB
-        const saved = localStorage.getItem('leadGenius_campaigns');
+        const saved = localStorage.getItem('Oceanic6_campaigns');
         if (saved) {
             setCampaigns(JSON.parse(saved));
         } else {

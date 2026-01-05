@@ -1,0 +1,89 @@
+# Lead Genius Agent - Replit Configuration
+# This file configures how Replit runs your full-stack application
+
+# Main run command - starts both backend and frontend
+run = "bash start.sh"
+
+# Specify the entry point for the deployment
+entrypoint = "start.sh"
+
+# Hidden files that shouldn't clutter the sidebar
+hidden = [".pythonlibs", "venv", "__pycache__", ".git", "node_modules", ".next"]
+
+# Language modules to load
+modules = ["python-3.11", "nodejs-20"]
+
+[nix]
+channel = "stable-24_05"
+
+[deployment]
+# Use "autoscale" for production deployments
+deploymentTarget = "autoscale"
+run = ["bash", "start.sh"]
+
+# Port configuration - Replit will proxy port 3000 externally
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
+
+[env]
+# Environment variables
+PYTHONUNBUFFERED = "1"
+NODE_ENV = "production"
+NEXT_PUBLIC_API_URL = "https://$REPL_SLUG.$REPL_OWNER.repl.co"
+
+[languages]
+
+[languages.python]
+pattern = "**/*.py"
+
+[languages.python.languageServer]
+start = "pylsp"
+
+[languages.javascript]
+pattern = "**/{*.js,*.jsx,*.ts,*.tsx}"
+
+[languages.javascript.languageServer]
+start = "typescript-language-server --stdio"
+
+[unitTest]
+language = "python3"
+
+[debugger]
+support = true
+
+[debugger.interactive]
+transport = "localhost:0"
+startCommand = ["dap-python", "backend/main.py"]
+
+[debugger.interactive.integratedAdapter]
+dapTcpAddress = "localhost:0"
+
+[debugger.interactive.initializeMessage]
+command = "initialize"
+type = "request"
+
+[debugger.interactive.initializeMessage.arguments]
+adapterID = "debugpy"
+clientID = "replit"
+clientName = "replit.com"
+columnsStartAt1 = true
+linesStartAt1 = true
+locale = "en-us"
+pathFormat = "path"
+supportsInvalidatedEvent = true
+supportsProgressReporting = true
+supportsRunInTerminalRequest = true
+supportsVariablePaging = true
+supportsVariableType = true
+
+[debugger.interactive.launchMessage]
+command = "attach"
+type = "request"
+
+[debugger.interactive.launchMessage.arguments]
+logging = {}

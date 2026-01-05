@@ -2,11 +2,13 @@ from fastapi import APIRouter, HTTPException
 from app.models.schemas import (
     CompanyInput, ResearchResult, DiscoveryInput, DiscoveryResult, 
     KeywordProposal, StrategyInput, StrategyResult,
-    LeadGenerationRequest, LeadGenerationResult
+    LeadGenerationRequest, LeadGenerationResult,
+    CompanyLookupRequest, CompanyLookupResponse
 )
 from app.agents.research_agent import ResearchAgent
 from app.agents.discovery_agent import DiscoveryAgent
 from app.agents.lead_generation_agent import LeadGenerationAgent
+from app.services.company_lookup import company_lookup_service
 
 router = APIRouter()
 
@@ -14,6 +16,28 @@ router = APIRouter()
 research_agent = ResearchAgent()
 discovery_agent = DiscoveryAgent()
 lead_gen_agent = LeadGenerationAgent()
+
+
+@router.post("/lookup-company", response_model=CompanyLookupResponse)
+async def lookup_company(input_data: CompanyLookupRequest):
+    """
+    Auto-fetch company URL and industry based on company name.
+    Uses DuckDuckGo search + AI to find the official website and industry.
+    """
+    try:
+        result = await company_lookup_service.lookup_company(input_data.company_name)
+        return CompanyLookupResponse(
+            website=result.get("website"),
+            industry=result.get("industry"),
+            error=result.get("error")
+        )
+    except Exception as e:
+        return CompanyLookupResponse(
+            website=None,
+            industry=None,
+            error=str(e)
+        )
+
 
 @router.post("/analyze", response_model=ResearchResult)
 async def analyze_company(input_data: CompanyInput):
@@ -54,3 +78,4 @@ async def generate_leads(input_data: LeadGenerationRequest):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+

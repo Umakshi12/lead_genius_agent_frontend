@@ -10,16 +10,17 @@ from app.models.schemas import (
     CompanyLead, 
     PersonContact
 )
+from app.services.web_scraper import WebScraper
 
 class LeadGenerationAgent:
     """
     Agent responsible for discovering and enriching company leads from selected channels.
-    Uses LLM-based research with simulated data collection (in production, would integrate
-    with Apify, Apollo, Clay, etc.)
+    Uses actual website scraping combined with LLM analysis for data enrichment.
     """
     
     def __init__(self):
         self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.scraper = WebScraper()
     
     async def generate_leads(self, request: LeadGenerationRequest) -> LeadGenerationResult:
         """
@@ -151,50 +152,80 @@ class LeadGenerationAgent:
     async def _enrich_company_lead(self, lead: CompanyLead, context: str) -> CompanyLead:
         """
         Enrich a company lead with contact information and key personnel.
-        In production, this would call Apollo, Clay, or other enrichment APIs.
-        Uses LLM fallback for demonstration.
+        Uses actual website scraping for company data, combined with LLM for key contacts.
         """
         
-        system_prompt = f"""You are a B2B Contact Enrichment Agent.
-        Given a company, research and provide:
+        # STEP 1: Scrape actual company data from website
+        if lead.website:
+            print(f"🔍 Scraping {lead.website} for company information...")
+            
+            # Get social media links from website
+            try:
+                social_links = await self.scraper.extract_social_media_links(lead.website)
+                lead.linkedin_url = social_links.get("linkedin_url") or lead.linkedin_url
+                lead.twitter_url = social_links.get("twitter_url")
+                lead.facebook_url = social_links.get("facebook_url")
+                lead.instagram_url = social_links.get("instagram_url")
+                lead.youtube_url = social_links.get("youtube_url")
+                lead.whatsapp_url = social_links.get("whatsapp_url")
+                lead.tiktok_url = social_links.get("tiktok_url")
+            except Exception as e:
+                print(f"  Social media extraction error: {e}")
+            
+            # Get contact info (address, phones, emails, branches) from website
+            try:
+                contact_info = await self.scraper.extract_contact_info(lead.website)
+                lead.main_address = contact_info.get("main_address")
+                lead.email_addresses = contact_info.get("email_addresses", [])
+                lead.phone_numbers = [{"number": p, "has_whatsapp": False} for p in contact_info.get("phone_numbers", [])]
+                lead.branches = contact_info.get("branches", [])
+                
+                # Set headquarters from location if not found
+                if not lead.headquarters and lead.location:
+                    lead.headquarters = lead.location
+            except Exception as e:
+                print(f"  Contact info extraction error: {e}")
         
-        1. Company contact information:
-           - Email addresses (general company emails)
-           - Phone numbers with WhatsApp availability indicator
-           - Social media profiles (Twitter, Facebook, Instagram if applicable)
+        # STEP 2: Use LLM only for key contacts (personnel data not available via scraping)
+        system_prompt = f"""You are a B2B Contact Research Agent.
+        Given a company, identify key decision-makers and provide their contact information.
         
-        2. Key contacts (2-4 people):
-           - Decision makers (C-level, VPs)
-           - Purchasing authorities
-           - Department heads relevant to: {context[:200]}
+        Find 2-4 key contacts:
+        - Decision makers (C-level, VPs, Directors)
+        - Purchasing authorities
+        - Department heads relevant to: {context[:200]}
         
-        For each person provide:
-           - Full name
-           - Designation
-           - Role category (Decision Maker, Purchasing Authority, Technical Lead, etc.)
-           - Professional email (if publicly available)
-           - LinkedIn URL
-           - Confidence score (0.0-1.0)
+        For each person provide ALL available contact info:
+        - Full name
+        - Designation/Title
+        - Role category (Decision Maker, Purchasing Authority, Technical Lead, etc.)
+        - Professional email
+        - Phone number
+        - LinkedIn URL
+        - Twitter URL
+        - Facebook URL
+        - Instagram URL
+        - WhatsApp number
         
         Return JSON format:
         {{
-            "email_addresses": ["info@company.com", "sales@company.com"],
-            "phone_numbers": [{{"number": "+1-xxx-xxx-xxxx", "has_whatsapp": true}}],
-            "twitter_url": "https://twitter.com/company",
-            "facebook_url": "https://facebook.com/company",
             "key_contacts": [
                 {{
                     "full_name": "John Doe",
                     "designation": "CEO",
                     "role_category": "Decision Maker",
                     "email": "john.doe@company.com",
+                    "phone": "+1-xxx-xxx-xxxx",
                     "linkedin_url": "https://linkedin.com/in/johndoe",
-                    "confidence_score": 0.85
+                    "twitter_url": "https://twitter.com/johndoe",
+                    "facebook_url": null,
+                    "instagram_url": null,
+                    "whatsapp_number": "+1-xxx-xxx-xxxx"
                 }}
             ]
         }}
         
-        Use realistic data. Mark confidence as lower (0.3-0.5) if data is inferred.
+        Be factual. Only include verifiable contact information found in public sources.
         """
         
         user_prompt = f"""
@@ -203,7 +234,7 @@ class LeadGenerationAgent:
         Industry: {lead.industry}
         Location: {lead.location}
         
-        Enrich this company with contact information and key personnel.
+        Find key decision-makers and their contact information.
         """
         
         try:
@@ -218,14 +249,7 @@ class LeadGenerationAgent:
             
             enrichment_data = json.loads(response.choices[0].message.content)
             
-            # Update lead with enriched data
-            lead.email_addresses = enrichment_data.get("email_addresses", [])
-            lead.phone_numbers = enrichment_data.get("phone_numbers", [])
-            lead.twitter_url = enrichment_data.get("twitter_url")
-            lead.facebook_url = enrichment_data.get("facebook_url")
-            lead.instagram_url = enrichment_data.get("instagram_url")
-            
-            # Add key contacts
+            # Add key contacts (only thing from LLM now - company data comes from scraper)
             contacts_data = enrichment_data.get("key_contacts", [])
             for contact_info in contacts_data:
                 contact = PersonContact(
@@ -233,15 +257,22 @@ class LeadGenerationAgent:
                     designation=contact_info.get("designation", "Unknown"),
                     role_category=contact_info.get("role_category", "Contact"),
                     email=contact_info.get("email"),
+                    phone=contact_info.get("phone"),
                     linkedin_url=contact_info.get("linkedin_url"),
-                    confidence_score=contact_info.get("confidence_score", 0.5),
-                    data_source="llm_enrichment"
+                    twitter_url=contact_info.get("twitter_url"),
+                    facebook_url=contact_info.get("facebook_url"),
+                    instagram_url=contact_info.get("instagram_url"),
+                    whatsapp_number=contact_info.get("whatsapp_number"),
+                    data_source="llm_research"
                 )
                 lead.key_contacts.append(contact)
             
             lead.enrichment_status = "enriched"
-            lead.confidence_score = 0.75
-            lead.data_sources.append("llm_enrichment")
+            lead.confidence_score = 0.8 if lead.website else 0.6
+            lead.data_sources.append("website_scrape")
+            lead.data_sources.append("llm_contacts")
+            
+            print(f"✓ Enriched {lead.company_name}: {len(lead.branches)} branches, {len(lead.key_contacts)} contacts")
             
         except Exception as e:
             print(f"Error enriching {lead.company_name}: {e}")

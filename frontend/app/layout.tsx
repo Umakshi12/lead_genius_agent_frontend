@@ -15,7 +15,7 @@ export default function RootLayout({
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center h-16">
               <Link href="/" className="text-2xl font-bold" style={{ color: 'var(--color-primary)' }}>
-                LeadGenius<span className="text-sm font-normal text-gray-500">.ai</span>
+              Oceanic6<span className="text-sm font-normal text-gray-500">.ai</span>
               </Link>
               <Link href="/dashboard" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition">
                 Dashboard

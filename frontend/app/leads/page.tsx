@@ -9,7 +9,10 @@ interface PersonContact {
     email?: string;
     phone?: string;
     linkedin_url?: string;
-    confidence_score: number;
+    twitter_url?: string;
+    instagram_url?: string;
+    facebook_url?: string;
+    whatsapp_number?: string;
 }
 
 interface CompanyLead {
@@ -18,11 +21,23 @@ interface CompanyLead {
     industry?: string;
     company_size?: string;
     location?: string;
+    // Address Information
+    main_address?: string;
+    headquarters?: string;
+    branches?: Array<{ name: string, address: string, phone?: string, email?: string }>;
+    // Social Media
     linkedin_url?: string;
     twitter_url?: string;
+    instagram_url?: string;
+    facebook_url?: string;
+    whatsapp_url?: string;
+    youtube_url?: string;
+    tiktok_url?: string;
+    // Contact Info
     email_addresses: string[];
     phone_numbers: Array<{ number: string, has_whatsapp: boolean }>;
     key_contacts: PersonContact[];
+    // Metadata
     channel_source: string;
     keywords_matched: string[];
     confidence_score: number;
@@ -40,7 +55,7 @@ export default function LeadsPage() {
     const [expandedCompany, setExpandedCompany] = useState<string | null>(null);
 
     useEffect(() => {
-        const stored = localStorage.getItem('leadGenius_strategy');
+        const stored = localStorage.getItem('Oceanic6_strategy');
         if (!stored) {
             router.push('/');
             return;
@@ -56,7 +71,7 @@ export default function LeadsPage() {
         setGenerating(true);
 
         try {
-            const stored = localStorage.getItem('leadGenius_strategy');
+            const stored = localStorage.getItem('Oceanic6_strategy');
             if (!stored) return;
 
             const strategyData = JSON.parse(stored);
@@ -69,8 +84,8 @@ export default function LeadsPage() {
                 max_leads_per_channel: 10
             };
 
-            const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-            const res = await fetch(`${baseUrl}/generate-leads`, {
+            const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+            const res = await fetch(`${baseUrl}/api/generate-leads`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -95,10 +110,10 @@ export default function LeadsPage() {
 
         const headers = [
             'Company Name', 'Website', 'Industry', 'Company Size', 'Location',
-            'LinkedIn', 'Twitter', 'Email Addresses', 'Phone Numbers',
+            'LinkedIn', 'Twitter', 'Instagram', 'Facebook', 'WhatsApp', 'YouTube', 'Email Addresses', 'Phone Numbers',
             'Channel Source', 'Keywords Matched', 'Confidence Score', 'Enrichment Status',
-            'Contact Name', 'Contact Designation', 'Contact Role', 'Contact Email',
-            'Contact LinkedIn', 'Contact Confidence'
+            'Contact Name', 'Contact Designation', 'Contact Role', 'Contact Email', 'Contact Phone',
+            'Contact LinkedIn', 'Contact Twitter', 'Contact Facebook', 'Contact Instagram', 'Contact WhatsApp'
         ];
 
         const rows: string[][] = [];
@@ -112,13 +127,17 @@ export default function LeadsPage() {
                     company.location || '',
                     company.linkedin_url || '',
                     company.twitter_url || '',
+                    company.instagram_url || '',
+                    company.facebook_url || '',
+                    company.whatsapp_url || '',
+                    company.youtube_url || '',
                     company.email_addresses.join('; '),
                     company.phone_numbers.map(p => `${p.number}${p.has_whatsapp ? ' (WhatsApp)' : ''}`).join('; '),
                     company.channel_source,
                     company.keywords_matched.join('; '),
                     company.confidence_score.toFixed(2),
                     company.enrichment_status,
-                    '', '', '', '', '', ''
+                    '', '', '', '', '', '', '', '', '', ''
                 ]);
             } else {
                 company.key_contacts.forEach(contact => {
@@ -130,6 +149,10 @@ export default function LeadsPage() {
                         company.location || '',
                         company.linkedin_url || '',
                         company.twitter_url || '',
+                        company.instagram_url || '',
+                        company.facebook_url || '',
+                        company.whatsapp_url || '',
+                        company.youtube_url || '',
                         company.email_addresses.join('; '),
                         company.phone_numbers.map(p => `${p.number}${p.has_whatsapp ? ' (WhatsApp)' : ''}`).join('; '),
                         company.channel_source,
@@ -140,8 +163,12 @@ export default function LeadsPage() {
                         contact.designation,
                         contact.role_category,
                         contact.email || '',
+                        contact.phone || '',
                         contact.linkedin_url || '',
-                        contact.confidence_score.toFixed(2)
+                        contact.twitter_url || '',
+                        contact.facebook_url || '',
+                        contact.instagram_url || '',
+                        contact.whatsapp_number || ''
                     ]);
                 });
             }
@@ -293,22 +320,86 @@ export default function LeadsPage() {
                                                                     <h4 className="font-semibold text-sm mb-2" style={{ color: 'var(--color-secondary)' }}>Company Information</h4>
                                                                     <div className="text-sm space-y-1">
                                                                         <div><span className="text-gray-600">Size:</span> {company.company_size || 'N/A'}</div>
+                                                                        {company.main_address && <div><span className="text-gray-600">📍 Address:</span> {company.main_address}</div>}
+                                                                        {company.headquarters && <div><span className="text-gray-600">🏢 HQ:</span> {company.headquarters}</div>}
                                                                         <div><span className="text-gray-600">LinkedIn:</span> {company.linkedin_url ? <a href={company.linkedin_url} target="_blank" className="text-blue-600 hover:underline">View</a> : 'N/A'}</div>
                                                                         <div><span className="text-gray-600">Emails:</span> {company.email_addresses.join(', ') || 'N/A'}</div>
                                                                         <div><span className="text-gray-600">Phones:</span> {company.phone_numbers.map(p => p.number).join(', ') || 'N/A'}</div>
+                                                                        <div><span className="text-gray-600">Instagram:</span> {company.instagram_url ? <a href={company.instagram_url} target="_blank" className="text-blue-600 hover:underline">View</a> : 'N/A'}</div>
+                                                                        <div><span className="text-gray-600">Facebook:</span> {company.facebook_url ? <a href={company.facebook_url} target="_blank" className="text-blue-600 hover:underline">View</a> : 'N/A'}</div>
+                                                                        <div><span className="text-gray-600">WhatsApp:</span> {company.whatsapp_url ? <a href={company.whatsapp_url} target="_blank" className="text-blue-600 hover:underline">Chat</a> : 'N/A'}</div>
+                                                                        <div><span className="text-gray-600">YouTube:</span> {company.youtube_url ? <a href={company.youtube_url} target="_blank" className="text-blue-600 hover:underline">View</a> : 'N/A'}</div>
+                                                                        {company.tiktok_url && <div><span className="text-gray-600">TikTok:</span> <a href={company.tiktok_url} target="_blank" className="text-blue-600 hover:underline">View</a></div>}
                                                                     </div>
+                                                                    {/* Branch Locations */}
+                                                                    {company.branches && company.branches.length > 0 && (
+                                                                        <div className="mt-3 pt-3 border-t border-gray-200">
+                                                                            <h5 className="font-semibold text-xs mb-2 text-gray-700">Branch Locations ({company.branches.length})</h5>
+                                                                            <div className="space-y-2">
+                                                                                {company.branches.map((branch, bIdx) => (
+                                                                                    <div key={bIdx} className="text-xs bg-gray-100 rounded p-2">
+                                                                                        <div className="font-medium">{branch.name || `Branch ${bIdx + 1}`}</div>
+                                                                                        {branch.address && <div className="text-gray-600">📍 {branch.address}</div>}
+                                                                                        {branch.phone && <div className="text-gray-600">📞 {branch.phone}</div>}
+                                                                                        {branch.email && <div className="text-gray-600">✉️ {branch.email}</div>}
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                                 <div>
                                                                     <h4 className="font-semibold text-sm mb-2" style={{ color: 'var(--color-secondary)' }}>Key Contacts</h4>
                                                                     {company.key_contacts.length > 0 ? (
-                                                                        <div className="space-y-2">
+                                                                        <div className="space-y-3">
                                                                             {company.key_contacts.map((contact, cIdx) => (
-                                                                                <div key={cIdx} className="text-sm border-l-2 pl-3" style={{ borderColor: 'var(--color-primary)' }}>
+                                                                                <div key={cIdx} className="text-sm border-l-2 pl-3 pb-2" style={{ borderColor: 'var(--color-primary)' }}>
                                                                                     <div className="font-semibold">{contact.full_name}</div>
                                                                                     <div className="text-gray-600">{contact.designation}</div>
-                                                                                    <div className="text-xs text-gray-500">{contact.role_category}</div>
-                                                                                    {contact.email && <div className="text-xs text-blue-600">{contact.email}</div>}
-                                                                                    {contact.linkedin_url && <a href={contact.linkedin_url} target="_blank" className="text-xs text-blue-600 hover:underline">LinkedIn</a>}
+                                                                                    <div className="text-xs text-gray-500 mb-1">{contact.role_category}</div>
+
+                                                                                    {/* Contact Information */}
+                                                                                    <div className="flex flex-wrap gap-2 mt-1">
+                                                                                        {contact.email && (
+                                                                                            <a href={`mailto:${contact.email}`} className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
+                                                                                                ✉️ {contact.email}
+                                                                                            </a>
+                                                                                        )}
+                                                                                        {contact.phone && (
+                                                                                            <a href={`tel:${contact.phone}`} className="text-xs px-2 py-0.5 bg-green-50 text-green-600 rounded hover:bg-green-100">
+                                                                                                📞 {contact.phone}
+                                                                                            </a>
+                                                                                        )}
+                                                                                        {contact.whatsapp_number && (
+                                                                                            <span className="text-xs px-2 py-0.5 bg-green-50 text-green-600 rounded">
+                                                                                                💬 WhatsApp: {contact.whatsapp_number}
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
+
+                                                                                    {/* Social Media Links */}
+                                                                                    <div className="flex flex-wrap gap-2 mt-1">
+                                                                                        {contact.linkedin_url && (
+                                                                                            <a href={contact.linkedin_url} target="_blank" className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
+                                                                                                LinkedIn
+                                                                                            </a>
+                                                                                        )}
+                                                                                        {contact.twitter_url && (
+                                                                                            <a href={contact.twitter_url} target="_blank" className="text-xs px-2 py-0.5 bg-sky-100 text-sky-700 rounded hover:bg-sky-200">
+                                                                                                Twitter
+                                                                                            </a>
+                                                                                        )}
+                                                                                        {contact.instagram_url && (
+                                                                                            <a href={contact.instagram_url} target="_blank" className="text-xs px-2 py-0.5 bg-pink-100 text-pink-700 rounded hover:bg-pink-200">
+                                                                                                Instagram
+                                                                                            </a>
+                                                                                        )}
+                                                                                        {contact.facebook_url && (
+                                                                                            <a href={contact.facebook_url} target="_blank" className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
+                                                                                                Facebook
+                                                                                            </a>
+                                                                                        )}
+                                                                                    </div>
                                                                                 </div>
                                                                             ))}
                                                                         </div>

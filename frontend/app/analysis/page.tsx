@@ -9,7 +9,7 @@ export default function AnalysisPage() {
     const [error, setError] = useState('');
 
     useEffect(() => {
-        const stored = localStorage.getItem('leadGenius_company');
+        const stored = localStorage.getItem('Oceanic6_company');
         if (!stored) {
             router.push('/');
             return;
@@ -18,8 +18,8 @@ export default function AnalysisPage() {
 
         const fetchData = async () => {
             try {
-                const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-                const res = await fetch(`${baseUrl}/analyze`, {
+                const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+                const res = await fetch(`${baseUrl}/api/analyze`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(input)
@@ -39,7 +39,7 @@ export default function AnalysisPage() {
     }, [router]);
 
     const handleSave = () => {
-        localStorage.setItem('leadGenius_analysis', JSON.stringify(data));
+        localStorage.setItem('Oceanic6_analysis', JSON.stringify(data));
         router.push('/discovery');
     };
 
@@ -55,7 +55,7 @@ export default function AnalysisPage() {
                     <h1 className="text-3xl font-bold mb-2" style={{ color: 'var(--color-secondary)' }}>{data?.company_name}</h1>
                     <p className="text-gray-600">Strategic Analysis Results</p>
                 </div>
-                <button onClick={handleSave} className="oceanic-btn oceanic-btn-primary">
+                <button onClick={handleSave} className="leadgenius-btn leadgenius-btn-primary">
                     Continue to Discovery →
                 </button>
             </div>
@@ -63,7 +63,7 @@ export default function AnalysisPage() {
             <div className="space-y-6">
 
                 {/* Company Profile */}
-                <section className="oceanic-card p-8">
+                <section className="leadgenius-card p-8">
                     <h2 className="text-xl font-bold mb-6" style={{ color: 'var(--color-secondary)' }}>Company Profile</h2>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -90,12 +90,108 @@ export default function AnalysisPage() {
                         </div>
                     </div>
 
+                    {/* Contact Information Section */}
+                    <div className="mt-8 pt-8 border-t border-gray-200">
+                        <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--color-secondary)' }}>Contact Information</h3>
+                        <p className="text-xs text-gray-600 mb-4 italic">Auto-extracted from company website</p>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-semibold mb-2 text-gray-700">Main Address</label>
+                                <textarea
+                                    className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-primary)] transition-colors min-h-[80px]"
+                                    placeholder="Company headquarters address..."
+                                    value={data?.main_address || ''}
+                                    onChange={e => setData({ ...data, main_address: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-semibold mb-2 text-gray-700">Phone Numbers</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {data?.phone_numbers?.map((phone: string, idx: number) => (
+                                            <span key={idx} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm bg-blue-50 border border-blue-200 text-blue-700">
+                                                📞 {phone}
+                                                <button onClick={() => {
+                                                    const newArr = data.phone_numbers.filter((_: any, i: number) => i !== idx);
+                                                    setData({ ...data, phone_numbers: newArr });
+                                                }} className="hover:text-red-500">×</button>
+                                            </span>
+                                        ))}
+                                        <button onClick={() => {
+                                            const val = prompt("Enter phone number:");
+                                            if (val) setData({ ...data, phone_numbers: [...(data.phone_numbers || []), val] });
+                                        }} className="px-3 py-1.5 border-2 border-dashed border-blue-300 rounded-lg text-sm text-blue-500 hover:border-blue-400">
+                                            + Add
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-semibold mb-2 text-gray-700">Email Addresses</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {data?.email_addresses?.map((email: string, idx: number) => (
+                                            <span key={idx} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm bg-green-50 border border-green-200 text-green-700">
+                                                ✉️ {email}
+                                                <button onClick={() => {
+                                                    const newArr = data.email_addresses.filter((_: any, i: number) => i !== idx);
+                                                    setData({ ...data, email_addresses: newArr });
+                                                }} className="hover:text-red-500">×</button>
+                                            </span>
+                                        ))}
+                                        <button onClick={() => {
+                                            const val = prompt("Enter email address:");
+                                            if (val) setData({ ...data, email_addresses: [...(data.email_addresses || []), val] });
+                                        }} className="px-3 py-1.5 border-2 border-dashed border-green-300 rounded-lg text-sm text-green-500 hover:border-green-400">
+                                            + Add
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Branch Locations */}
+                        {(data?.branches?.length > 0) && (
+                            <div className="mt-6">
+                                <label className="block text-sm font-semibold mb-3 text-gray-700">
+                                    Branch / Office Locations ({data.branches.length})
+                                </label>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {data.branches.map((branch: any, idx: number) => (
+                                        <div key={idx} className="border-2 border-gray-200 rounded-lg p-4 bg-gray-50 relative">
+                                            <button
+                                                onClick={() => {
+                                                    const newBranches = data.branches.filter((_: any, i: number) => i !== idx);
+                                                    setData({ ...data, branches: newBranches });
+                                                }}
+                                                className="absolute top-2 right-2 text-gray-400 hover:text-red-500"
+                                            >×</button>
+                                            <h4 className="font-semibold text-sm mb-2" style={{ color: 'var(--color-secondary)' }}>
+                                                {branch.name || `Location ${idx + 1}`}
+                                            </h4>
+                                            {branch.address && (
+                                                <p className="text-xs text-gray-600 mb-1">📍 {branch.address}</p>
+                                            )}
+                                            {branch.phone && (
+                                                <p className="text-xs text-gray-600 mb-1">📞 {branch.phone}</p>
+                                            )}
+                                            {branch.email && (
+                                                <p className="text-xs text-gray-600">✉️ {branch.email}</p>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     {/* Social Media Section */}
                     <div className="mt-8 pt-8 border-t border-gray-200">
                         <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--color-secondary)' }}>Social Media Profiles</h3>
-                        <p className="text-xs text-gray-600 mb-4 italic">Auto-fetched from website. Edit or add missing profiles below.</p>
+                        <p className="text-xs text-gray-600 mb-4 italic">Auto-fetched from website footer. Edit or add missing profiles below.</p>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             <div>
                                 <label className="block text-xs font-semibold mb-2 text-gray-700">LinkedIn</label>
                                 <input
@@ -152,6 +248,50 @@ export default function AnalysisPage() {
                             </div>
 
                             <div>
+                                <label className="block text-xs font-semibold mb-2 text-gray-700">WhatsApp</label>
+                                <input
+                                    type="url"
+                                    className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-primary)] transition-colors"
+                                    placeholder="https://wa.me/..."
+                                    value={data?.whatsapp_url || ''}
+                                    onChange={e => setData({ ...data, whatsapp_url: e.target.value })}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold mb-2 text-gray-700">TikTok</label>
+                                <input
+                                    type="url"
+                                    className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-primary)] transition-colors"
+                                    placeholder="https://tiktok.com/@..."
+                                    value={data?.tiktok_url || ''}
+                                    onChange={e => setData({ ...data, tiktok_url: e.target.value })}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold mb-2 text-gray-700">Pinterest</label>
+                                <input
+                                    type="url"
+                                    className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-primary)] transition-colors"
+                                    placeholder="https://pinterest.com/..."
+                                    value={data?.pinterest_url || ''}
+                                    onChange={e => setData({ ...data, pinterest_url: e.target.value })}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold mb-2 text-gray-700">Threads</label>
+                                <input
+                                    type="url"
+                                    className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-primary)] transition-colors"
+                                    placeholder="https://threads.net/@..."
+                                    value={data?.threads_url || ''}
+                                    onChange={e => setData({ ...data, threads_url: e.target.value })}
+                                />
+                            </div>
+
+                            <div>
                                 <label className="block text-xs font-semibold mb-2 text-gray-700">GitHub</label>
                                 <input
                                     type="url"
@@ -159,6 +299,28 @@ export default function AnalysisPage() {
                                     placeholder="https://github.com/..."
                                     value={data?.github_url || ''}
                                     onChange={e => setData({ ...data, github_url: e.target.value })}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold mb-2 text-gray-700">Snapchat</label>
+                                <input
+                                    type="url"
+                                    className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-primary)] transition-colors"
+                                    placeholder="https://snapchat.com/..."
+                                    value={data?.snapchat_url || ''}
+                                    onChange={e => setData({ ...data, snapchat_url: e.target.value })}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold mb-2 text-gray-700">TripAdvisor</label>
+                                <input
+                                    type="url"
+                                    className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-primary)] transition-colors"
+                                    placeholder="https://tripadvisor.com/..."
+                                    value={data?.tripadvisor_url || ''}
+                                    onChange={e => setData({ ...data, tripadvisor_url: e.target.value })}
                                 />
                             </div>
                         </div>
@@ -230,8 +392,9 @@ export default function AnalysisPage() {
 
                             <div>
                                 <label className="block text-sm font-semibold mb-3" style={{ color: 'var(--color-primary)' }}>
-                                    Similar Companies
+                                    Target Prospects
                                 </label>
+                                <p className="text-xs text-gray-500 mb-2">Companies you can sell to</p>
                                 <div className="flex flex-wrap gap-2">
                                     {data?.target_companies?.map((item: string, idx: number) => (
                                         <span key={idx} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
@@ -244,7 +407,7 @@ export default function AnalysisPage() {
                                         </span>
                                     ))}
                                     <button onClick={() => {
-                                        const val = prompt("Enter company:");
+                                        const val = prompt("Enter a potential customer company name:");
                                         if (val) setData({ ...data, target_companies: [...(data.target_companies || []), val] });
                                     }} className="px-3 py-1.5 border-2 border-dashed rounded-lg text-sm hover:border-gray-400"
                                         style={{ borderColor: 'var(--color-primary)', color: 'var(--color-primary)' }}>

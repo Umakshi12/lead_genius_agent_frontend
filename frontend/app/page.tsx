@@ -10,7 +10,7 @@ export default function HomePage() {
       <section className="oceanic-hero min-h-[500px]">
         <div className="max-w-4xl mx-auto text-center z-10 relative px-4">
           <h1 className="text-5xl md:text-6xl font-bold text-white mb-6 animate-fade-in-up">
-            LeadGenius
+            Oceanic6
             <span className="block mt-2 text-3xl md:text-4xl font-normal" style={{ color: 'var(--color-accent)' }}>
               AI-Powered Lead Generation
             </span>
