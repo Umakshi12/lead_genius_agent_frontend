@@ -1,0 +1,16 @@
+{
+    "name": "lead-genius-agent-root",
+    "version": "1.0.0",
+    "description": "Root configuration for Replit monorepo deployment",
+    "scripts": {
+        "postinstall": "cd frontend && npm install && cd ../backend && pip install -r requirements.txt",
+        "build": "cd frontend && npm run build",
+        "start": "bash start.sh"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "concurrently": "^8.2.2"
+    }
+}
