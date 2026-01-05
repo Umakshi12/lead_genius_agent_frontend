@@ -19,6 +19,7 @@ channel = "stable-24_05"
 [deployment]
 # Use "autoscale" for production deployments
 deploymentTarget = "autoscale"
+build = ["bash", "build.sh"]
 run = ["bash", "start.sh"]
 
 # Port configuration - Replit will proxy port 3000 externally
