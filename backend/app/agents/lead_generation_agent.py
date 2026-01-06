@@ -24,30 +24,31 @@ class LeadGenerationAgent:
     
     async def generate_leads(self, request: LeadGenerationRequest) -> LeadGenerationResult:
         """
-        Main orchestration method for lead generation workflow
+        Main orchestration method for lead generation workflow.
+        Executes channel discovery and lead enrichment in parallel for maximum speed.
         """
         started_at = datetime.utcnow().isoformat()
+        
+        # 1. Parallel Channel Discovery
+        # Create tasks for all channels to run simultaneously
+        discovery_tasks = [
+            self._discover_and_enrich_channel(
+                channel=channel,
+                request=request
+            )
+            for channel in request.selected_channels
+        ]
+        
+        # Wait for all channels to complete
+        results = await asyncio.gather(*discovery_tasks)
+        
+        # Aggregate results
         all_companies = []
         leads_by_channel = {}
         
-        # Process each channel
-        for channel in request.selected_channels:
-            print(f"Processing channel: {channel}")
-            channel_leads = await self._discover_from_channel(
-                channel=channel,
-                keywords=request.selected_keywords,
-                industries=request.target_industries,
-                max_leads=request.max_leads_per_channel
-            )
-            
-            # Enrich each lead
-            enriched_leads = []
-            for lead in channel_leads:
-                enriched = await self._enrich_company_lead(lead, request.company_summary)
-                enriched_leads.append(enriched)
-            
-            all_companies.extend(enriched_leads)
-            leads_by_channel[channel] = len(enriched_leads)
+        for channel_leads, channel_name in results:
+            all_companies.extend(channel_leads)
+            leads_by_channel[channel_name] = len(channel_leads)
         
         completed_at = datetime.utcnow().isoformat()
         
@@ -59,6 +60,37 @@ class LeadGenerationAgent:
             started_at=started_at,
             completed_at=completed_at
         )
+
+    async def _discover_and_enrich_channel(
+        self,
+        channel: str,
+        request: LeadGenerationRequest
+    ) -> tuple[List[CompanyLead], str]:
+        """
+        Helper method to handle a single channel's full lifecycle (Discovery -> Enrichment)
+        """
+        print(f"🚀 Processing channel: {channel}...")
+        
+        # Step 1: Discover (LLM/Search)
+        channel_leads = await self._discover_from_channel(
+            channel=channel,
+            keywords=request.selected_keywords,
+            industries=request.target_industries,
+            max_leads=request.max_leads_per_channel
+        )
+        
+        if not channel_leads:
+            return [], channel
+
+        # Step 2: Enrich (Parallel Scraping)
+        print(f"⚡ Enriching {len(channel_leads)} leads from {channel} in parallel...")
+        enrichment_tasks = [
+            self._enrich_company_lead(lead, request.company_summary)
+            for lead in channel_leads
+        ]
+        
+        enriched_leads = await asyncio.gather(*enrichment_tasks)
+        return enriched_leads, channel
     
     async def _discover_from_channel(
         self, 
