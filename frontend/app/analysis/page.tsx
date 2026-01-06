@@ -55,15 +55,15 @@ export default function AnalysisPage() {
                     <h1 className="text-3xl font-bold mb-2" style={{ color: 'var(--color-secondary)' }}>{data?.company_name}</h1>
                     <p className="text-gray-600">Strategic Analysis Results</p>
                 </div>
-                <button onClick={handleSave} className="leadgenius-btn leadgenius-btn-primary">
-                    Continue to Discovery →
+                <button onClick={handleSave} className="oceanic-btn oceanic-btn-primary shadow-lg hover:shadow-xl transform transition-all duration-300 flex items-center gap-2 text-base px-10 py-4 bg-gradient-to-r from-[#b8946f] to-[#8b6f4d] hover:from-[#8b6f4d] hover:to-[#6d563a] border-none">
+                    Continue to Discovery <span className="group-hover:translate-x-1 transition-transform">→</span>
                 </button>
             </div>
 
             <div className="space-y-6">
 
                 {/* Company Profile */}
-                <section className="leadgenius-card p-8">
+                <section className="oceanic-card p-8">
                     <h2 className="text-xl font-bold mb-6" style={{ color: 'var(--color-secondary)' }}>Company Profile</h2>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

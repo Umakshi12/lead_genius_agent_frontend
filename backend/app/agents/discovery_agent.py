@@ -107,7 +107,7 @@ class DiscoveryAgent:
         
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 response_format={ "type": "json_object" }
             )
@@ -231,7 +231,7 @@ class DiscoveryAgent:
         """
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 response_format={ "type": "json_object" }
             )
