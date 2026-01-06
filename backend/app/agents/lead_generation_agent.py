@@ -82,10 +82,17 @@ class LeadGenerationAgent:
         if not channel_leads:
             return [], channel
 
-        # Step 2: Enrich (Parallel Scraping)
-        print(f"⚡ Enriching {len(channel_leads)} leads from {channel} in parallel...")
+        # Step 2: Enrich (Parallel Scraping with Safety Limit)
+        # Limit to 10 concurrent connections to be polite and avoid blocking
+        semaphore = asyncio.Semaphore(10)
+        print(f"⚡ Enriching {len(channel_leads)} leads from {channel} in parallel (Max 10 concurrent)...")
+        
+        async def enrich_with_limit(lead):
+            async with semaphore:
+                return await self._enrich_company_lead(lead, request.company_summary)
+
         enrichment_tasks = [
-            self._enrich_company_lead(lead, request.company_summary)
+            enrich_with_limit(lead)
             for lead in channel_leads
         ]
         
