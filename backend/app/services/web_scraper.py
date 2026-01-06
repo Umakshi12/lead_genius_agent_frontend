@@ -184,7 +184,8 @@ class WebScraper:
             'main_address': None,
             'phone_numbers': [],
             'email_addresses': [],
-            'branches': []  # List of {name, address, phone, email}
+            'branches': [],  # List of {name, address, phone, email}
+            'website_content': "" # Captured text for LLM analysis
         }
         
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
@@ -237,6 +238,12 @@ class WebScraper:
                 # Log results
                 print(f"✓ Extracted contact info from {url}")
                 print(f"  Main address: {contact_info['main_address'][:50] if contact_info['main_address'] else 'Not found'}...")
+                # Capture a decent amount of text for the LLM (up to 4000 chars) from what we found
+                if not contact_info['website_content']:
+                     # Fallback: use what we have from the last soup
+                     contact_info['website_content'] = soup.get_text(separator=' ', strip=True)[:4000]
+                
+                print(f"  Content length: {len(contact_info['website_content'])} chars")
                 print(f"  Phones: {len(contact_info['phone_numbers'])}, Emails: {len(contact_info['email_addresses'])}, Branches: {len(contact_info['branches'])}")
                 
             except Exception as e:
@@ -248,7 +255,14 @@ class WebScraper:
         """Extract contact information from a BeautifulSoup object."""
         
         # Get full text for regex matching
-        text = soup.get_text(separator=' ')
+        # Get full text for regex matching
+        text = soup.get_text(separator=' ', strip=True)
+        
+        # Capture text if it looks like an About or Team page
+        page_text = text.lower()
+        if any(k in page_text for k in ['about us', 'our team', 'leadership', 'management', 'board of directors']):
+             if len(text) > len(contact_info.get('website_content', '')):
+                 contact_info['website_content'] = text[:5000]
         
         # --- Extract Phone Numbers ---
         # Various phone formats: (123) 456-7890, 123-456-7890, +1 123 456 7890, etc.
@@ -309,11 +323,18 @@ class WebScraper:
                 continue
         
         # Extract from address containers
+        # Extract from address containers
         for container in address_containers:
+            # Skip containers that are just lists of links (menus)
+            if len(container.find_all('a')) > 3:
+                continue
+                
             address_text = container.get_text(separator=', ').strip()
             # Clean up the address
             address_text = re.sub(r'\s+', ' ', address_text)
-            if len(address_text) > 20 and len(address_text) < 500:  # Reasonable address length
+            
+            # Filter out obvious garbage (too long, too many commas indicating a list)
+            if len(address_text) > 20 and len(address_text) < 200 and address_text.count(',') < 6:
                 if not contact_info['main_address']:
                     contact_info['main_address'] = address_text
         

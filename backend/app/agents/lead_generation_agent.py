@@ -222,12 +222,17 @@ class LeadGenerationAgent:
                 # Set headquarters from location if not found
                 if not lead.headquarters and lead.location:
                     lead.headquarters = lead.location
+                    
+                # Store content for LLM
+                website_content = contact_info.get("website_content", "")
+                
             except Exception as e:
                 print(f"  Contact info extraction error: {e}")
+                website_content = ""
         
         # STEP 2: Use LLM only for key contacts (personnel data not available via scraping)
         system_prompt = f"""You are a B2B Contact Research Agent.
-        Given a company, identify key decision-makers and provide their contact information.
+        Given a company, identify key decision-makers and provide their contact information based on the provided website content.
         
         Find 2-4 key contacts:
         - Decision makers (C-level, VPs, Directors)
@@ -241,10 +246,6 @@ class LeadGenerationAgent:
         - Professional email
         - Phone number
         - LinkedIn URL
-        - Twitter URL
-        - Facebook URL
-        - Instagram URL
-        - WhatsApp number
         
         Return JSON format:
         {{
@@ -252,19 +253,12 @@ class LeadGenerationAgent:
                 {{
                     "full_name": "John Doe",
                     "designation": "CEO",
-                    "role_category": "Decision Maker",
-                    "email": "john.doe@company.com",
-                    "phone": "+1-xxx-xxx-xxxx",
-                    "linkedin_url": "https://linkedin.com/in/johndoe",
-                    "twitter_url": "https://twitter.com/johndoe",
-                    "facebook_url": null,
-                    "instagram_url": null,
-                    "whatsapp_number": "+1-xxx-xxx-xxxx"
+                    "...": "..."
                 }}
             ]
         }}
         
-        Be factual. Only include verifiable contact information found in public sources.
+        Be factual. Only include verifiable contact information found in the text below.
         """
         
         user_prompt = f"""
@@ -273,7 +267,13 @@ class LeadGenerationAgent:
         Industry: {lead.industry}
         Location: {lead.location}
         
-        Find key decision-makers and their contact information.
+        WEBSITE CONTENT (About Us / Team / Contact Page):
+        ---
+        {website_content[:5000]}
+        ---
+        
+        Find key decision-makers and their contact information from the text above.
+        If no specific people are mentioned in the text, return an empty list.
         """
         
         try:
