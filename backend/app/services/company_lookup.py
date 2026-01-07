@@ -111,7 +111,7 @@ Respond in this exact JSON format only, no other text:
 
         try:
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-5-nano",
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that extracts company information from search results. Always respond with valid JSON only."},
                     {"role": "user", "content": prompt}
