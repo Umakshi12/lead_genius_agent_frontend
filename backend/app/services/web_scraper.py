@@ -1,4 +1,4 @@
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 import httpx
 from bs4 import BeautifulSoup
 import asyncio
@@ -6,8 +6,8 @@ import re
 import warnings
 from typing import Dict, Optional
 
-# Suppress duckduckgo_search RuntimeWarning
-warnings.filterwarnings("ignore", category=RuntimeWarning, module="duckduckgo_search")
+# Suppress ddgs RuntimeWarning
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="ddgs")
 
 class WebScraper:
     def __init__(self):
