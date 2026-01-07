@@ -31,7 +31,7 @@ gcloud run deploy $BACKEND_SERVICE_NAME \
     --platform managed \
     --region $REGION \
     --allow-unauthenticated \
-    --set-env-vars OPENAI_API_KEY=$OPENAI_API_KEY,OPENAI_MODEL=gpt-5-nano \
+    --set-env-vars OPENAI_API_KEY=$OPENAI_API_KEY,OPENAI_MODEL=gpt-4o-mini \
     --project $PROJECT_ID
 
 # Get Backend URL
