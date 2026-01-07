@@ -9,7 +9,7 @@ import json
 import asyncio
 from typing import Optional
 from openai import AsyncOpenAI
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from dotenv import load_dotenv
 
 load_dotenv()

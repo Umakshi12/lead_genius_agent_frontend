@@ -3,7 +3,11 @@ import httpx
 from bs4 import BeautifulSoup
 import asyncio
 import re
+import warnings
 from typing import Dict, Optional
+
+# Suppress duckduckgo_search RuntimeWarning
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="duckduckgo_search")
 
 class WebScraper:
     def __init__(self):
@@ -12,9 +16,10 @@ class WebScraper:
 
     def search(self, query: str, max_results: int = 3):
         try:
-            with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=max_results))
-                return results
+            # Direct instantiation avoids some context manager timeouts/issues in recent versions
+            ddgs = DDGS()
+            results = list(ddgs.text(query, max_results=max_results))
+            return results
         except Exception as e:
             print(f"Search error: {e}")
             return []
@@ -156,7 +161,7 @@ class WebScraper:
                     
                     # Count found links
                     found_count = sum(1 for v in social_links.values() if v is not None)
-                    print(f"✓ Extracted {found_count} social media links from {url}")
+                    print(f"  [SUCCESS] Extracted {found_count} social media links from {url}")
                     print(f"  Links found: {[k.replace('_url', '') for k, v in social_links.items() if v]}")
                     
             except Exception as e:
@@ -191,6 +196,7 @@ class WebScraper:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
         
         async with httpx.AsyncClient(follow_redirects=True, verify=False) as client:
+            soup = None
             try:
                 # Try to fetch main page and contact page
                 pages_to_check = [url]
@@ -213,7 +219,8 @@ class WebScraper:
                     # Look for contact page links
                     for link in soup.find_all('a', href=True):
                         href = link.get('href', '').lower()
-                        if any(keyword in href for keyword in ['contact', 'location', 'office', 'branch', 'store']):
+                        # Expanded keywords to find Team/Leadership pages too
+                        if any(keyword in href for keyword in ['contact', 'location', 'office', 'branch', 'store', 'team', 'people', 'leadership', 'management', 'board']):
                             full_url = self._make_absolute_url(base_url, link['href'])
                             if full_url not in pages_to_check:
                                 pages_to_check.append(full_url)
@@ -236,10 +243,10 @@ class WebScraper:
                 contact_info['email_addresses'] = list(set(contact_info['email_addresses']))
                 
                 # Log results
-                print(f"✓ Extracted contact info from {url}")
+                print(f"  [SUCCESS] Extracted contact info from {url}")
                 print(f"  Main address: {contact_info['main_address'][:50] if contact_info['main_address'] else 'Not found'}...")
                 # Capture a decent amount of text for the LLM (up to 4000 chars) from what we found
-                if not contact_info['website_content']:
+                if not contact_info['website_content'] and soup:
                      # Fallback: use what we have from the last soup
                      contact_info['website_content'] = soup.get_text(separator=' ', strip=True)[:4000]
                 
@@ -255,14 +262,29 @@ class WebScraper:
         """Extract contact information from a BeautifulSoup object."""
         
         # Get full text for regex matching
-        # Get full text for regex matching
         text = soup.get_text(separator=' ', strip=True)
         
         # Capture text if it looks like an About or Team page
         page_text = text.lower()
-        if any(k in page_text for k in ['about us', 'our team', 'leadership', 'management', 'board of directors']):
-             if len(text) > len(contact_info.get('website_content', '')):
-                 contact_info['website_content'] = text[:5000]
+        
+        # Keywords that suggest this page contains people/leadership info
+        people_keywords = ['our team', 'leadership', 'management', 'board of directors', 'executive team', 'founder', 'partners']
+        is_people_page = any(k in page_text for k in people_keywords)
+        
+        # If it's a "people" page or we don't have content yet, add it
+        current_content = contact_info.get('website_content', '')
+        
+        if is_people_page or not current_content:
+             # Avoid huge duplicates
+             if text[:200] not in current_content: 
+                 # Add a header to help LLM distinguish sections
+                 section_header = "\n\n--- RELEVANT PAGE CONTENT ---\n" 
+                 if is_people_page:
+                     section_header = "\n\n--- LEADERSHIP & TEAM PAGE CONTENT ---\n"
+                 
+                 # Append, but respect a reasonable limit (e.g., 25000 chars total)
+                 if len(current_content) < 25000:
+                     contact_info['website_content'] += section_header + text[:10000]
         
         # --- Extract Phone Numbers ---
         # Various phone formats: (123) 456-7890, 123-456-7890, +1 123 456 7890, etc.
@@ -322,7 +344,6 @@ class WebScraper:
             except:
                 continue
         
-        # Extract from address containers
         # Extract from address containers
         for container in address_containers:
             # Skip containers that are just lists of links (menus)

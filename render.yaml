@@ -1,0 +1,28 @@
+services:
+  # FastAPI Backend
+  - type: web
+    name: lead-genius-backend
+    runtime: python
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && python -m uvicorn main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: PORT
+        value: 10000
+    
+  # Next.js Frontend
+  - type: web
+    name: lead-genius-frontend
+    runtime: node
+    buildCommand: "cd frontend && npm install && npm run build"
+    startCommand: "cd frontend && npm run start"
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.0
+      - key: NEXT_PUBLIC_API_URL
+        value: https://lead-genius-backend.onrender.com/api
+      - key: PORT
+        value: 3000

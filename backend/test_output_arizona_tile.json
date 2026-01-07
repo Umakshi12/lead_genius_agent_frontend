@@ -1,0 +1,57 @@
+{
+  "company_name": "Arizona Tile",
+  "website": "https://www.arizonatile.com",
+  "industry": "Building Materials",
+  "company_size": null,
+  "location": null,
+  "main_address": "Not Publicly Disclosed",
+  "headquarters": "Not Publicly Disclosed",
+  "branches": [
+    {
+      "name": "Not Publicly Disclosed",
+      "address": "Not Publicly Disclosed",
+      "phone": "Not Publicly Disclosed",
+      "email": "Not Publicly Disclosed"
+    }
+  ],
+  "linkedin_url": "https://in.linkedin.com/company/arizona-tile",
+  "twitter_url": null,
+  "facebook_url": "https://www.facebook.com/ArizonaTile/about/",
+  "instagram_url": "https://www.instagram.com/arizonatile/",
+  "youtube_url": null,
+  "whatsapp_url": null,
+  "tiktok_url": null,
+  "pinterest_url": null,
+  "email_addresses": [],
+  "phone_numbers": [],
+  "key_contacts": [
+    {
+      "full_name": "Not Publicly Disclosed",
+      "designation": "Not Publicly Disclosed",
+      "role_category": "Other",
+      "email": null,
+      "phone": null,
+      "linkedin_url": null,
+      "twitter_url": null,
+      "facebook_url": null,
+      "instagram_url": null,
+      "whatsapp_number": null,
+      "data_source": "Search"
+    }
+  ],
+  "channel_source": "test",
+  "keywords_matched": [
+    "tile",
+    "stone",
+    "granite"
+  ],
+  "confidence_score": 0.95,
+  "enrichment_status": "enriched",
+  "data_sources": [
+    "sitemap_crawl",
+    "multi_source_search",
+    "linkedin_verification",
+    "agentic_verification"
+  ],
+  "discovered_at": "2026-01-07T00:00:00Z"
+}

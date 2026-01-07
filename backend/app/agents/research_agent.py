@@ -60,8 +60,8 @@ class ResearchAgent:
         Analyze the provided company website content AND social media profiles.
         
         Extract the following fields in JSON format:
-        - company_summary: A comprehensive summary based on website AND social media presence. 
-          Include insights from their social media activity, recent posts, engagement style, brand voice, and company culture.
+        - company_summary: A comprehensive summary based on website AND social media presence.
+        - main_address: The full physical address of the company headquarters or main office.
         - icp_profile: A list of Ideal Customer Profiles - types of businesses/organizations that would BUY from this company 
         - target_industries: A list of industries where their CUSTOMERS operate (NOT the company's own industry).
         - target_companies: A list of SPECIFIC REAL COMPANY NAMES that are POTENTIAL CUSTOMERS - businesses that could 
@@ -73,14 +73,6 @@ class ResearchAgent:
         - pain_points: A list of customer pain points they address.
         
         CRITICAL: target_companies must be POTENTIAL BUYERS/CUSTOMERS, not competitors or similar businesses!
-        
-        Use insights from social media to enrich your understanding of:
-        - Company culture, values, and brand personality
-        - Recent achievements, announcements, and milestones
-        - Customer engagement, testimonials, and community feedback
-        - Product updates, features, and innovations
-        - Industry thought leadership and expertise
-        - Team highlights and company growth
         
         Be strictly factual based on the content provided.
         """
@@ -124,18 +116,23 @@ class ResearchAgent:
             
             data = json.loads(response.choices[0].message.content)
             
+            # Use scraper address if found, otherwise fallback to LLM extracted address
+            scraped_address = contact_info.get("main_address")
+            llm_address = data.get("main_address")
+            final_address = scraped_address if scraped_address else llm_address
+
             return ResearchResult(
                 company_name=input_data.company_name,
                 company_summary=data.get("company_summary", "Analysis unavailable."),
-                icp_profile=data.get("icp_profile", []),
-                target_industries=data.get("target_industries", []),
-                target_companies=data.get("target_companies", []),
-                usp=data.get("usp", ""),
-                pain_points=data.get("pain_points", []),
+                icp_profile=[str(x) if not isinstance(x, dict) else x.get("profile_name", str(x)) for x in data.get("icp_profile", [])],
+                target_industries=[str(x) if not isinstance(x, dict) else x.get("industry_name", str(x)) for x in data.get("target_industries", [])],
+                target_companies=[str(x) if not isinstance(x, dict) else x.get("company_name", str(x)) for x in data.get("target_companies", [])],
+                usp=data.get("usp", "") if isinstance(data.get("usp"), str) else "; ".join([str(x) for x in data.get("usp", [])]),
+                pain_points=[str(x) if not isinstance(x, dict) else x.get("pain_point", str(x)) for x in data.get("pain_points", [])],
                 sources=[url] if url else ["No source found"],
                 confidence_score=0.85 if content else 0.4,
-                # Contact information (auto-extracted from website)
-                main_address=contact_info.get("main_address"),
+                # Contact information
+                main_address=final_address,
                 phone_numbers=contact_info.get("phone_numbers", []),
                 email_addresses=contact_info.get("email_addresses", []),
                 branches=contact_info.get("branches", []),

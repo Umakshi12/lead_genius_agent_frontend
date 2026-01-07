@@ -129,6 +129,7 @@ class CompanyLead(BaseModel):
     youtube_url: Optional[str] = None
     whatsapp_url: Optional[str] = None
     tiktok_url: Optional[str] = None
+    pinterest_url: Optional[str] = None
     
     # Contact Info
     email_addresses: List[str] = []

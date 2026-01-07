@@ -74,8 +74,55 @@ async def generate_leads(input_data: LeadGenerationRequest):
     4. Return structured, tabular data
     """
     try:
-        result = await lead_gen_agent.generate_leads(input_data)
-        return result
+        # Backward compatibility - wait for generator to finish if client calls this
+        # Note: Ideally this would reuse the stream but collect it.
+        # For now, we'll keep the old implementation if needed, but since we modified the class...
+        # Wait - I removed the old implementation in the previous step (passed).
+        # So I need to restore a wrapper or just direct traffic.
+        
+        # Actually my previous edit made generate_leads just `pass`. So this endpoint is broken now unless I fix it.
+        # I should change this to use the stream and collect results.
+        
+        companies = []
+        leads_by_channel = {}
+        
+        async for line in lead_gen_agent.generate_leads_stream(input_data):
+            try:
+                msg = json.loads(line)
+                if msg["type"] == "lead":
+                     company = CompanyLead(**msg["data"])
+                     companies.append(company)
+                     channel = company.channel_source
+                     leads_by_channel[channel] = leads_by_channel.get(channel, 0) + 1
+            except:
+                 pass
+                 
+        return LeadGenerationResult(
+            total_leads=len(companies),
+            leads_by_channel=leads_by_channel,
+            companies=companies,
+            generation_summary=f"Generated {len(companies)} leads",
+            started_at=datetime.utcnow().isoformat(),
+            completed_at=datetime.utcnow().isoformat()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+from fastapi.responses import StreamingResponse
+import json
+from datetime import datetime
+
+@router.post("/generate-leads-stream")
+async def generate_leads_stream(input_data: LeadGenerationRequest):
+    """
+    Stream lead generation events as they happen.
+    Returns JSON lines.
+    """
+    try:
+        return StreamingResponse(
+            lead_gen_agent.generate_leads_stream(input_data),
+            media_type="application/x-ndjson"
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
