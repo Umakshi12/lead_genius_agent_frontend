@@ -9,6 +9,9 @@ from app.agents.research_agent import ResearchAgent
 from app.agents.discovery_agent import DiscoveryAgent
 from app.agents.lead_generation_agent import LeadGenerationAgent
 from app.services.company_lookup import company_lookup_service
+from fastapi.responses import StreamingResponse
+import json
+from datetime import datetime
 
 router = APIRouter()
 
@@ -108,9 +111,7 @@ async def generate_leads(input_data: LeadGenerationRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-from fastapi.responses import StreamingResponse
-import json
-from datetime import datetime
+
 
 @router.post("/generate-leads-stream")
 async def generate_leads_stream(input_data: LeadGenerationRequest):

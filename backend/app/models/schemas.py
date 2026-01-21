@@ -6,6 +6,7 @@ class CompanyInput(BaseModel):
     website: str  # Kept as str to avoid strict validation errors early on
     industry: Optional[str] = None
     existing_customers: Optional[str] = None
+    sub_product: Optional[str] = None
 
 
 class CompanyLookupRequest(BaseModel):
@@ -20,6 +21,15 @@ class CompanyLookupResponse(BaseModel):
     error: Optional[str] = Field(default=None, description="Error message if lookup failed")
 
 
+class CustomerPattern(BaseModel):
+    """Pattern extracted from existing customers"""
+    common_industries: List[str] = Field(default=[], description="Industries existing customers belong to")
+    typical_size: Optional[str] = Field(default=None, description="e.g., '10-50 employees', 'Enterprise'")
+    geographic_focus: Optional[str] = Field(default=None, description="e.g., 'Southwest US', 'National'")
+    business_models: List[str] = Field(default=[], description="e.g., 'B2B', 'E-commerce', 'Service Provider'")
+    common_descriptors: List[str] = Field(default=[], description="Keywords that describe customers")
+
+
 class ResearchResult(BaseModel):
     company_name: str
     company_summary: str = Field(description="Structured summary of the company")
@@ -30,6 +40,9 @@ class ResearchResult(BaseModel):
     pain_points: List[str] = Field(description="Customer pain points they solve")
     sources: List[str] = Field(description="List of sources used for verification")
     confidence_score: float = Field(description="Confidence score 0.0 to 1.0")
+    
+    # Customer Pattern Analysis
+    customer_pattern: Optional[CustomerPattern] = Field(default=None, description="Analyzed pattern from existing customers")
     
     # Contact Information (auto-fetched from website)
     main_address: Optional[str] = Field(default=None, description="Company's main/headquarters address")
@@ -93,7 +106,9 @@ class LeadGenerationRequest(BaseModel):
     selected_keywords: List[str] = Field(description="Keywords to search for")
     target_industries: List[str] = Field(description="Target industries")
     company_summary: str = Field(description="Company summary for context")
+    location: Optional[str] = Field(default=None, description="Target location for Google Maps search (e.g., 'Phoenix, AZ', 'California')")
     max_leads_per_channel: int = Field(default=50, description="Maximum leads to generate per channel")
+    customer_pattern: Optional[CustomerPattern] = Field(default=None, description="Pattern for filtering leads")
 
 class PersonContact(BaseModel):
     full_name: str
@@ -145,6 +160,7 @@ class CompanyLead(BaseModel):
     enrichment_status: str = Field(default="pending", description="pending, enriched, failed")
     data_sources: List[str] = []
     discovered_at: str = Field(description="ISO timestamp")
+    lead_score: Optional[int] = None
 
 
 class LeadGenerationResult(BaseModel):

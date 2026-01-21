@@ -33,6 +33,28 @@ A production-ready, modular, multi-agent Lead Generation web application.
 
 ---
 
+## 🌐 Production Deployment (Render)
+
+This application is **currently deployed** on Render for production use.
+
+### Live Deployment
+- **Backend**: Deployed on Render using `render.yaml` configuration
+- **Frontend**: Deployed on Render with backend integration
+- **Configuration**: See [render.yaml](render.yaml) for setup details
+
+### Keeping Backend Alive
+To prevent the backend from sleeping on Render's free tier:
+- **Uptime Monitoring**: [UptimeRobot](https://uptimerobot.com) configured to ping every **15 minutes**
+- **Endpoint**: Monitors `/health` or root endpoint
+- **Benefit**: Ensures the backend stays warm and responsive
+
+> **Tip**: UptimeRobot's free tier allows monitoring up to 50 services with 5-minute check intervals. The 15-minute interval keeps the app responsive while staying within free tier limits.
+
+### Deployment Guide
+For detailed deployment instructions across multiple platforms, see [MARKET_ACCESS_GUIDE.md](MARKET_ACCESS_GUIDE.md).
+
+---
+
 ## 🚀 Deploying to Replit
 
 ### Quick Deploy (Recommended)

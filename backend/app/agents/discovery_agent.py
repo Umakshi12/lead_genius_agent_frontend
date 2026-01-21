@@ -20,32 +20,31 @@ class DiscoveryAgent:
         OBJECTIVE:
         Identify **all relevant customer segments** within the given industry and generate **comprehensive, accurate, non-hallucinated keywords** that such businesses genuinely use to describe themselves online.
 
-        These keywords will later be used for:
-        - Lead discovery
-        - Scraping
-        - Search queries
-        - Database enrichment
-
         STRICT GUIDELINES:
-        1. **DO NOT LIMIT the number of keywords or categories**
+        1. **NO ARTIFICIAL LIMITATION**
+        - Do NOT limit the output to just 5 categories.
+        - If there are 15 relevant business categories, output all 15.
+        - Do NOT limit keywords per category (unless they become irrelevant).
+
+        2. **DO NOT LIMIT the number of keywords or categories**
         - Cover the full market landscape.
         - Include niche, regional, enterprise, SMB, service-based, and product-based segments where applicable.
 
-        2. **DO NOT HALLUCINATE**
+        3. **DO NOT HALLUCINATE**
         - Only generate keywords that are:
             - Commonly used by real businesses
             - Search-relevant
             - Industry-appropriate
         - Avoid buzzwords with no commercial or discovery value.
 
-        3. **NO IRRELEVANT KEYWORDS**
+        4. **NO IRRELEVANT KEYWORDS**
         - Every keyword must represent a business that could realistically be:
             - A buyer
             - A user
             - A decision-maker
             - Or a strong lead for the given industry
 
-        4. **COVER ALL CUSTOMER SEGMENTS**
+        5. **COVER ALL CUSTOMER SEGMENTS**
         Include (where relevant):
         - End customers
         - Service providers
@@ -56,7 +55,7 @@ class DiscoveryAgent:
         - Industry-specific roles and departments
         - Vertical-specific buyers
 
-        5. **Categorization is OPTIONAL but HIGHLY PREFERRED**
+        6. **Categorization is OPTIONAL but HIGHLY PREFERRED**
         - If categories help clarity, group keywords logically.
         - Categories should emerge naturally from the industry (not forced).
         - Example category styles (use only if relevant):
@@ -68,7 +67,7 @@ class DiscoveryAgent:
             - Local / Regional Business Types
             - Enterprise / B2B Buyers
 
-        6. **FOCUS ON DISCOVERY-READY KEYWORDS**
+        7. **FOCUS ON DISCOVERY-READY KEYWORDS**
         - Keywords should be usable directly in:
             - Google Maps searches
             - Website scraping
@@ -104,7 +103,7 @@ class DiscoveryAgent:
         Industries: {', '.join(input_data.target_industries)}
         Summary: {input_data.company_summary}
         """
-        
+
         try:
             response = await self.client.chat.completions.create(
                 model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
@@ -236,8 +235,25 @@ class DiscoveryAgent:
                 response_format={ "type": "json_object" }
             )
             data = json.loads(response.choices[0].message.content)
+            
+            # ALWAYS include Google Maps as the first channel (highest priority)
+            google_maps_channel = {
+                "name": "Google Maps",
+                "relevance_score": 95,
+                "why_it_matters": "Direct local business directory with verified locations, contact info, and real-time data. Essential for any B2B lead generation."
+            }
+            
+            # Get LLM-suggested channels and prepend Google Maps
+            llm_channels = data.get("channels", [])
+            
+            # Remove Google Maps if LLM suggested it (to avoid duplicates)
+            llm_channels = [ch for ch in llm_channels if ch.get("name", "").lower() != "google maps"]
+            
+            # Combine: Google Maps first, then LLM suggestions
+            all_channels = [google_maps_channel] + llm_channels
+            
             return StrategyResult(
-                channels=data.get("channels", []),
+                channels=all_channels,
                 strategy_summary=data.get("strategy_summary", "")
             )
         except Exception as e:

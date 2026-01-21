@@ -1,8 +1,23 @@
 import os
+import sys
 import json
 import asyncio
+import re
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
+from urllib.parse import urlparse
+
+# CRITICAL: Python 3.13+ Windows fix for Playwright
+if sys.platform == 'win32':
+    if sys.version_info >= (3, 13):
+        import nest_asyncio
+        nest_asyncio.apply()
+    else:
+        try:
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        except AttributeError:
+            pass
+
 from openai import AsyncOpenAI
 from app.models.schemas import (
     LeadGenerationRequest, 
@@ -11,6 +26,94 @@ from app.models.schemas import (
     PersonContact
 )
 from app.services.web_scraper import WebScraper
+
+
+def normalize_domain(website: Optional[str]) -> Optional[str]:
+    if not website:
+        return None
+    w = website.strip().lower()
+    if not w.startswith(("http://", "https://")):
+        w = "http://" + w
+    domain = urlparse(w).netloc
+    domain = re.sub(r"^www\.", "", domain)
+    return domain or None
+
+
+def normalize_email(email: Optional[str]) -> Optional[str]:
+    return email.strip().lower() if email else None
+
+
+def should_skip_lead_in_run(
+    lead: "CompanyLead",
+    seen_domains: set,
+    seen_emails: set,
+) -> bool:
+    """
+    In-memory dedupe for the current generation run.
+    Returns True if this lead should be skipped as a duplicate.
+    """
+    domain = normalize_domain(lead.website)
+    emails = [normalize_email(e) for e in (lead.email_addresses or [])]
+
+    # Duplicate company by domain
+    if domain and domain in seen_domains:
+        return True
+
+    # Duplicate by any email
+    if any(e and e in seen_emails for e in emails):
+        return True
+
+    # First time seeing this lead → record it
+    if domain:
+        seen_domains.add(domain)
+    for e in emails:
+        if e:
+            seen_emails.add(e)
+
+    return False
+
+
+def score_lead(lead: "CompanyLead", request: "LeadGenerationRequest") -> int:
+    """
+    Simple heuristic scoring from 0–100.
+    You can tune this over time as you learn what "good" looks like.
+    """
+    score = 0
+
+    # 1) Industry match
+    if lead.industry and request.target_industries:
+        if lead.industry in request.target_industries:
+            score += 25
+        else:
+            if any(ind.lower() in (lead.industry or "").lower() for ind in request.target_industries):
+                score += 15
+
+    # 2) Location match
+    if lead.location and request.location:
+        if request.location.lower() in lead.location.lower():
+            score += 20
+
+    # 3) Keywords matched (you already set keywords_matched)
+    kw_count = len(lead.keywords_matched or [])
+    score += min(kw_count * 5, 20)
+
+    # 4) Contact quality (decision-makers)
+    has_senior_contact = any(
+        c.role_category in ("Decision Maker", "Founder", "C-Level", "VP", "Director")
+        for c in (lead.key_contacts or [])
+    )
+    if has_senior_contact:
+        score += 25
+    elif lead.key_contacts:
+        score += 10  # some contacts, but not ideal
+
+    # 5) Confidence score from your enrichment
+    if lead.confidence_score >= 0.9:
+        score += 10
+    elif lead.confidence_score >= 0.7:
+        score += 5
+
+    return max(0, min(score, 100))
 
 class LeadGenerationAgent:
     """
@@ -21,6 +124,69 @@ class LeadGenerationAgent:
     def __init__(self):
         self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.scraper = WebScraper()
+    
+    def _matches_customer_pattern(self, lead: CompanyLead, pattern) -> bool:
+        """
+        Binary match check (NO scoring).
+        Returns True if lead matches at least 2 out of 4 pattern attributes.
+        This filters leads BEFORE enrichment to save API costs.
+        """
+        if not pattern:
+            return True  # No pattern = accept all leads
+        
+        matches = 0
+        
+        # 1. Industry match
+        if pattern.common_industries and lead.industry:
+            lead_industry_lower = lead.industry.lower()
+            if any(ind.lower() in lead_industry_lower for ind in pattern.common_industries):
+                matches += 1
+                print(f"✓ Industry match: {lead.industry} matches {pattern.common_industries}")
+        
+        # 2. Geographic match
+        if pattern.geographic_focus and lead.location:
+            location_lower = lead.location.lower()
+            focus_lower = pattern.geographic_focus.lower()
+            # Check if any part of the focus appears in location
+            if any(part in location_lower for part in focus_lower.split()):
+                matches += 1
+                print(f"✓ Geographic match: {lead.location} matches {pattern.geographic_focus}")
+        
+        # 3. Descriptor match (check company name and industry)
+        if pattern.common_descriptors:
+            lead_text = f"{lead.company_name} {lead.industry or ''}".lower()
+            if any(desc.lower() in lead_text for desc in pattern.common_descriptors):
+                matches += 1
+                print(f"✓ Descriptor match: found pattern keywords in {lead.company_name}")
+        
+        # 4. Size match (if we can infer from company name)
+        # This is a basic heuristic - if pattern specifies SMB/Enterprise
+        if pattern.typical_size:
+            size_indicators = {
+                "enterprise": ["inc", "corporation", "corp", "holdings"],
+                "smb": ["llc", "ltd", "limited"],
+            }
+            company_lower = lead.company_name.lower()
+            pattern_size_lower = pattern.typical_size.lower()
+            
+            if "enterprise" in pattern_size_lower:
+                if any(ind in company_lower for ind in size_indicators["enterprise"]):
+                    matches += 1
+                    print(f"✓ Size match: {lead.company_name} appears to be Enterprise")
+            elif any(term in pattern_size_lower for term in ["smb", "small", "10-50"]):
+                if any(ind in company_lower for ind in size_indicators["smb"]):
+                    matches += 1
+                    print(f"✓ Size match: {lead.company_name} appears to be SMB")
+        
+        # Require at least 1 match to pass filter (was 2, too strict)
+        # If pattern has very specific criteria, requiring 2/4 filters out too many leads
+        passed = matches >= 1  # Changed from >= 2
+        if not passed:
+            print(f"✗ Pattern filter: {lead.company_name} matched {matches}/4 criteria - FILTERED OUT")
+        else:
+            print(f"✓ Pattern filter: {lead.company_name} matched {matches}/4 criteria - ACCEPTED")
+        
+        return passed
     
     async def generate_leads(self, request: LeadGenerationRequest) -> LeadGenerationResult:
         """
@@ -80,7 +246,8 @@ class LeadGenerationAgent:
                     channel=channel,
                     keywords=request.selected_keywords,
                     industries=request.target_industries,
-                    max_leads=request.max_leads_per_channel
+                    max_leads=request.max_leads_per_channel,
+                    location=request.location
                 )
                 
                 if not leads:
@@ -89,12 +256,26 @@ class LeadGenerationAgent:
 
                 await queue.put({"type": "status", "data": f"Found {len(leads)} leads in {channel}. Enriching..."})
 
+                # PATTERN FILTERING: DISABLED - was filtering out too many valid leads
+                # if request.customer_pattern:
+                #     print(f"\n🔍 Applying customer pattern filter...")
+                #     original_count = len(leads)
+                #     leads = [l for l in leads if self._matches_customer_pattern(l, request.customer_pattern)]
+                #     filtered_count = original_count - len(leads)
+                #     print(f"📊 Pattern filter: {original_count} leads → {len(leads)} leads ({filtered_count} filtered out)")
+                #     await queue.put({"type": "status", "data": f"Filtered to {len(leads)} pattern-matching leads"})
+                
+                # if not leads:
+                #     await queue.put({"type": "status", "data": f"No leads passed pattern filter in {channel}"})
+                #     return
+                
                 # Enrichment mechanism
                 semaphore = asyncio.Semaphore(5) # Limit concurrency per channel
                 
                 async def enrich_one(lead):
                     async with semaphore:
                         enriched = await self._enrich_company_lead(lead, request.company_summary)
+                        
                         # Yield the lead immediately
                         try:
                            # Try Pydantic v2
@@ -146,7 +327,8 @@ class LeadGenerationAgent:
             channel=channel,
             keywords=request.selected_keywords,
             industries=request.target_industries,
-            max_leads=request.max_leads_per_channel
+            max_leads=request.max_leads_per_channel,
+            location=request.location
         )
         
         if not channel_leads:
@@ -174,13 +356,22 @@ class LeadGenerationAgent:
         channel: str, 
         keywords: List[str], 
         industries: List[str],
-        max_leads: int
+        max_leads: int,
+        location: Optional[str] = None
     ) -> List[CompanyLead]:
         """
-        Discover companies from a specific channel using LLM-based research.
-        In production, this would call Apify actors or channel-specific APIs.
+        Discover companies from a specific channel.
+        - For Google Maps: Uses real Playwright scraping
+        - For other channels: Uses LLM-based discovery
         """
         
+        # GOOGLE MAPS: Use real scraping
+        # Support multiple channel name variations for better UX
+        google_maps_variations = ["google maps", "googlemaps", "maps", "gmaps", "google map"]
+        if channel.lower() in google_maps_variations:
+            return await self._discover_from_google_maps(keywords, location or "United States", max_leads)
+        
+        # OTHER CHANNELS: Use LLM discovery
         system_prompt = f"""You are a B2B Lead Discovery Agent.
         Your task is to identify real companies that match the given criteria from the specified channel.
         
@@ -256,6 +447,155 @@ class LeadGenerationAgent:
             
         except Exception as e:
             print(f"Error discovering from {channel}: {e}")
+            return []
+    
+    async def _discover_from_google_maps(
+        self,
+        keywords: List[str],
+        location: str,
+        max_leads: int
+    ) -> List[CompanyLead]:
+        """
+        Use GoogleMapsScraper to discover real leads.
+        Runs Playwright in a separate thread with its own event loop to avoid
+        Python 3.13 + Windows + Uvicorn compatibility issues.
+        """
+        print(f"[GOOGLE MAPS] Scraping for keywords: {keywords} in {location}")
+        
+        def _run_playwright_sync():
+            """
+            Run Playwright in a separate thread with its own ProactorEventLoop.
+            This fixes the NotImplementedError on Windows + Python 3.13 + Uvicorn.
+            """
+            import asyncio
+            from playwright.async_api import async_playwright
+            from app.agents.google_maps import GoogleMapsScraper
+            
+            # Create a fresh ProactorEventLoop for this thread (required for subprocess on Windows)
+            if sys.platform == 'win32':
+                loop = asyncio.ProactorEventLoop()
+            else:
+                loop = asyncio.new_event_loop()
+            
+            asyncio.set_event_loop(loop)
+            
+            async def _scrape():
+                scraper = GoogleMapsScraper()
+                discovered_leads = []
+                
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(
+                        headless=True,
+                        args=[
+                            "--disable-blink-features=AutomationControlled",
+                            "--no-sandbox",
+                            "--disable-setuid-sandbox",
+                            "--disable-dev-shm-usage",
+                            "--disable-gpu",
+                        ]
+                    )
+                    
+                    context = await browser.new_context(
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        viewport={"width": 1920, "height": 1080},
+                        locale="en-US",
+                        timezone_id="America/New_York",
+                        permissions=["geolocation"],
+                        java_script_enabled=True
+                    )
+                    
+                    await context.add_init_script("""
+                        Object.defineProperty(navigator, 'webdriver', {
+                            get: () => undefined
+                        });
+                    """)
+                    
+                    # Scrape for each keyword (limit to first 3 keywords to avoid overwhelming)
+                    for keyword in keywords[:3]:
+                        print(f"  -> Searching: '{keyword}' in {location}")
+                        
+                        record_count = 0
+                        async for record in scraper.search(context, location, keyword=keyword, max_concurrency=10):
+                            # Convert CompanyRecord to CompanyLead
+                            # Enhanced WhatsApp detection: International numbers (+country code) likely support WhatsApp
+                            phone_numbers = []
+                            if record.company_phone_number:
+                                phone_str = str(record.company_phone_number).strip()
+                                has_whatsapp = phone_str.startswith('+') and len(phone_str) > 10
+                                phone_numbers.append({
+                                    "number": phone_str, 
+                                    "has_whatsapp": has_whatsapp
+                                })
+                            
+                            # Build location string with fallback logic
+                            location_str = record.company_full_address
+                            if not location_str and (record.city or record.state):
+                                parts = [p for p in [record.city, record.state] if p]
+                                location_str = ", ".join(parts)
+                            
+                            lead = CompanyLead(
+                                company_name=record.company_name,
+                                website=record.company_website,
+                                industry=record.company_category or "Unknown",
+                                location=location_str or "Unknown",
+                                main_address=record.company_full_address,
+                                phone_numbers=phone_numbers,
+                                channel_source="Google Maps",
+                                keywords_matched=[keyword],
+                                confidence_score=0.9,  # High confidence from Google Maps
+                                enrichment_status="pending",
+                                data_sources=["google_maps_scraper"],
+                                discovered_at=datetime.utcnow().isoformat()
+                            )
+                            discovered_leads.append(lead)
+                            record_count += 1
+                            
+                            # Stop if we've reached max leads across all keywords
+                            if len(discovered_leads) >= max_leads:
+                                break
+                        
+                        print(f"  [OK] Found {record_count} companies for '{keyword}'")
+                        
+                        if len(discovered_leads) >= max_leads:
+                            break
+                    
+                    await browser.close()
+                
+                return discovered_leads
+            
+            try:
+                return loop.run_until_complete(_scrape())
+            finally:
+                loop.close()
+        
+        try:
+            # Run Playwright in a separate thread to avoid event loop conflicts
+            loop = asyncio.get_running_loop()
+            discovered_leads = await loop.run_in_executor(None, _run_playwright_sync)
+            
+            print(f"[GOOGLE MAPS] Discovered {len(discovered_leads)} total leads")
+            return discovered_leads[:max_leads]
+            
+        except Exception as e:
+            error_msg = str(e).lower()
+            
+            # Categorize error for better debugging
+            if "browser" in error_msg or "playwright" in error_msg:
+                print(f"[ERROR] GOOGLE MAPS: Browser/Playwright issue - {e}")
+                print("[TIP] Check if Playwright browsers are installed: python -m playwright install chromium")
+            elif "timeout" in error_msg or "network" in error_msg:
+                print(f"[ERROR] GOOGLE MAPS: Network/Timeout issue - {e}")
+                print(f"[TIP] Location '{location}' may be too slow or inaccessible. Try a more specific location.")
+            elif "consent" in error_msg or "cookie" in error_msg:
+                print(f"[ERROR] GOOGLE MAPS: Cookie consent issue - {e}")
+                print("[TIP] Google may have changed their consent dialog. Check google_maps.py _handle_consent method.")
+            else:
+                print(f"[ERROR] GOOGLE MAPS: Unexpected error - {e}")
+            
+            import traceback
+            traceback.print_exc()
+            
+            # Return empty list instead of crashing
             return []
     
     async def _enrich_company_lead(self, lead: CompanyLead, context: str) -> CompanyLead:
@@ -579,4 +919,7 @@ Return a single valid JSON object with this exact structure:
             lead.confidence_score = 0.2
             
         return lead
+
+
+
 

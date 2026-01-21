@@ -9,6 +9,49 @@ class ResearchAgent:
         self.scraper = WebScraper()
         self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+    async def _analyze_customer_patterns(self, customers_text: str) -> dict:
+        """
+        Extract structured patterns from existing customers.
+        Returns insights about industries, size, location, and business models.
+        """
+        if not customers_text or customers_text.strip() == "":
+            return None
+            
+        prompt = f"""
+        Analyze these existing customers and extract common patterns:
+        
+        Existing Customers: {customers_text}
+        
+        Extract the following in JSON format:
+        {{
+            "common_industries": ["industry1", "industry2"],
+            "typical_size": "10-50 employees" or "Enterprise" or "SMB",
+            "geographic_focus": "Southwest US" or "National" or "Regional",
+            "business_models": ["B2B", "E-commerce", "Service Provider"],
+            "common_descriptors": ["keyword1", "keyword2"]
+        }}
+        
+        Rules:
+        - Extract 2-5 industries that appear most common
+        - Infer typical company size from company names (e.g., "LLC" = small, "Inc" = medium/large)
+        - Infer geographic focus from locations mentioned
+        - Identify business model patterns (B2B, B2C, SaaS, etc.)
+        - Extract 3-5 descriptive keywords that characterize these customers
+        """
+        
+        try:
+            response = await self.client.chat.completions.create(
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            
+            pattern_data = json.loads(response.choices[0].message.content)
+            return pattern_data
+        except Exception as e:
+            print(f"Error analyzing customer patterns: {e}")
+            return None
+
     async def analyze(self, input_data: CompanyInput) -> ResearchResult:
         url = input_data.website
         
@@ -82,11 +125,13 @@ class ResearchAgent:
         Analyze this company:
         Name: {input_data.company_name}
         Industry: {input_data.industry}
+        Sub Product: {input_data.sub_product}
         Existing Customers (use these as reference to find MORE companies like them): {input_data.existing_customers}
         
         IMPORTANT for target_companies field:
         - These should be POTENTIAL CUSTOMERS / PROSPECTS - companies that could BUY from {input_data.company_name}
         - DO NOT list competitors or companies in the same business as {input_data.company_name}
+        - If 'Sub Product' is provided, prioritize companies that specifically need that product.
         - If existing customers are mentioned, find OTHER companies similar to those customers
         - If no existing customers provided, suggest real company names that match the ICP profiles
         
@@ -103,6 +148,16 @@ class ResearchAgent:
                 user_prompt += f"\n--- {platform} Profile ---\n{text}\n"
         else:
             user_prompt += "\nNo social media content available.\n"
+        
+        # STEP 4: Analyze customer patterns if existing customers provided
+        customer_pattern_obj = None
+        if input_data.existing_customers:
+            print(f"Analyzing customer patterns from: {input_data.existing_customers}")
+            pattern_data = await self._analyze_customer_patterns(input_data.existing_customers)
+            if pattern_data:
+                from app.models.schemas import CustomerPattern
+                customer_pattern_obj = CustomerPattern(**pattern_data)
+                print(f"Extracted pattern: {customer_pattern_obj}")
         
         try:
             response = await self.client.chat.completions.create(
@@ -131,6 +186,7 @@ class ResearchAgent:
                 pain_points=[str(x) if not isinstance(x, dict) else x.get("pain_point", str(x)) for x in data.get("pain_points", [])],
                 sources=[url] if url else ["No source found"],
                 confidence_score=0.85 if content else 0.4,
+                customer_pattern=customer_pattern_obj,
                 # Contact information
                 main_address=final_address,
                 phone_numbers=contact_info.get("phone_numbers", []),

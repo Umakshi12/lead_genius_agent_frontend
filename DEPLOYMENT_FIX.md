@@ -59,3 +59,6 @@ The deployment should now succeed! 🎉
 - **Total**: ~3-4 minutes
 
 Check your Render dashboard in a few minutes to see the successful deployment! ✅
+
+
+This app is working fine upto the contact details extraction, correctly finding out the linkedin platforms, have to check the logic od companies data extraction or data from companies page.

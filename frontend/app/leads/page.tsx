@@ -41,6 +41,7 @@ interface CompanyLead {
     // Metadata
     channel_source: string;
     keywords_matched: string[];
+    confidence_score: number;
     enrichment_status: string;
 }
 
@@ -54,19 +55,27 @@ export default function LeadsPage() {
     const [newChannel, setNewChannel] = useState("");
     const [leadsByChannel, setLeadsByChannel] = useState<Record<string, number>>({});
     const [expandedCompany, setExpandedCompany] = useState<string | null>(null);
+    const [location, setLocation] = useState("United States");
 
     // Filtered leads visible in the table (currently showing all, but can be filtered)
-    const visibleLeads = leads;
     const totalLeads = leads.length;
 
     useEffect(() => {
-        const stored = localStorage.getItem('Oceanic6_strategy');
-        if (!stored) {
-            router.push('/');
+        const strategyStored = localStorage.getItem('Oceanic6_strategy');
+        const analysisStored = localStorage.getItem('Oceanic6_analysis');
+
+        // Enforce sequential flow: user must complete analysis and strategy before leads
+        if (!analysisStored) {
+            router.push('/analysis');
             return;
         }
 
-        const strategyData = JSON.parse(stored);
+        if (!strategyStored) {
+            router.push('/discovery');
+            return;
+        }
+
+        const strategyData = JSON.parse(strategyStored);
         const channels = strategyData.channels.map((c: any) => c.name);
         setSelectedChannels(channels);
         setLoading(false);
@@ -99,13 +108,16 @@ export default function LeadsPage() {
             if (!stored) return;
 
             const strategyData = JSON.parse(stored);
+            const analysisData = JSON.parse(localStorage.getItem('Oceanic6_analysis') || '{}');
 
             const payload = {
                 selected_channels: selectedChannels,
                 selected_keywords: strategyData.keywords || [],
                 target_industries: strategyData.target_industries || [],
                 company_summary: strategyData.company_summary || "",
-                max_leads_per_channel: 10
+                location,
+                customer_pattern: analysisData.customer_pattern || null,
+                max_leads_per_channel: 25  // Increased from 10 to get more leads
             };
 
             const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -192,6 +204,7 @@ export default function LeadsPage() {
                     company.phone_numbers.map(p => `${p.number}${p.has_whatsapp ? ' (WhatsApp)' : ''}`).join('; '),
                     company.channel_source,
                     company.keywords_matched.join('; '),
+                    company.confidence_score.toString(),
                     company.enrichment_status,
                     '', '', '', '', '', '', '', '', '', ''
                 ]);
@@ -213,6 +226,7 @@ export default function LeadsPage() {
                         company.phone_numbers.map(p => `${p.number}${p.has_whatsapp ? ' (WhatsApp)' : ''}`).join('; '),
                         company.channel_source,
                         company.keywords_matched.join('; '),
+                        company.confidence_score.toString(),
                         company.enrichment_status,
                         contact.full_name,
                         contact.designation,
@@ -297,6 +311,21 @@ export default function LeadsPage() {
                         <span className="text-gray-400 italic text-sm">No channels selected</span>
                     )}
                 </div>
+
+                {/* Location filter */}
+                <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-2">
+                    <label className="text-sm font-medium text-gray-700">
+                        Target location (city, state, country, etc.)
+                    </label>
+                    <input
+                        type="text"
+                        value={location}
+                        onChange={(e) => setLocation(e.target.value)}
+                        placeholder="e.g. San Francisco, California, United States"
+                        className="border rounded px-3 py-2 text-sm flex-1 outline-none focus:border-blue-500"
+                        disabled={generating}
+                    />
+                </div>
             </div>
 
             {/* Generate Button */}
@@ -373,7 +402,7 @@ export default function LeadsPage() {
                                                     <div className="font-semibold text-gray-900">{company.company_name}</div>
                                                     {company.website && (
                                                         <a href={company.website} target="_blank" rel="noopener noreferrer"
-                                                            className="text-xs text-blue-600 hover:underline">
+                                                            className="text-xs text-blue-600 hover:underline break-all max-w-xs block overflow-hidden">
                                                             {company.website}
                                                         </a>
                                                     )}
@@ -601,9 +630,9 @@ export default function LeadsPage() {
                                                                                             <div className="text-sm text-gray-600">{contact.designation}</div>
                                                                                             <div className="mt-1">
                                                                                                 <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${contact.role_category === 'Decision Maker' ? 'bg-purple-100 text-purple-700' :
-                                                                                                        contact.role_category === 'Technical Lead' ? 'bg-blue-100 text-blue-700' :
-                                                                                                            contact.role_category === 'Purchasing Authority' ? 'bg-green-100 text-green-700' :
-                                                                                                                'bg-gray-100 text-gray-700'
+                                                                                                    contact.role_category === 'Technical Lead' ? 'bg-blue-100 text-blue-700' :
+                                                                                                        contact.role_category === 'Purchasing Authority' ? 'bg-green-100 text-green-700' :
+                                                                                                            'bg-gray-100 text-gray-700'
                                                                                                     }`}>
                                                                                                     <span>{contact.role_category === 'Decision Maker' ? '👑' :
                                                                                                         contact.role_category === 'Technical Lead' ? '⚙️' :

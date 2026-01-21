@@ -1,3 +1,24 @@
+import os
+import sys
+import asyncio
+
+# CRITICAL FIX for Python 3.13+ on Windows with Playwright
+# Python 3.13 uses ProactorEventLoop by default which doesn't support subprocess creation
+# Solution: Use nest_asyncio to allow nested event loops
+if sys.platform == 'win32':
+    if sys.version_info >= (3, 13):
+        # Python 3.13+: Use nest_asyncio to enable subprocess support
+        import nest_asyncio
+        nest_asyncio.apply()
+        print("[PLAYWRIGHT FIX] Python 3.13+ - Applied nest_asyncio patch")
+    else:
+        # Python 3.8-3.12: Use SelectorEventLoop (has native subprocess support)
+        try:
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+            print("[PLAYWRIGHT FIX] Using WindowsSelectorEventLoopPolicy")
+        except AttributeError:
+            pass
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv

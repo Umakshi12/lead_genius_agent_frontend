@@ -93,7 +93,7 @@ class CompanyLookupService:
             formatted_results += f"\n{i}. Title: {title}\n   URL: {url}\n   Description: {body}\n"
 
         prompt = f"""You are a research assistant. Based on the following search results for the company "{company_name}", extract:
-1. The official website URL of the company (not a news article, not LinkedIn, not a directory listing - the company's actual official website)
+1. The official website URL of the company (not a news article, not LinkedIn, not Wikipedia page, not a directory listing - the company's actual official website)
 2. The industry/sector the company operates in
 
 Search Results:

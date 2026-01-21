@@ -18,12 +18,21 @@ export default function DiscoveryPage() {
     const [inputData, setInputData] = useState<any>(null);
 
     useEffect(() => {
-        const stored = localStorage.getItem('Oceanic6_analysis');
-        if (!stored) {
+        const analysisStored = localStorage.getItem('Oceanic6_analysis');
+        const companyStored = localStorage.getItem('Oceanic6_company');
+
+        // Enforce sequential flow: user must complete onboarding + analysis
+        if (!companyStored) {
             router.push('/');
             return;
         }
-        const input = JSON.parse(stored);
+
+        if (!analysisStored) {
+            router.push('/analysis');
+            return;
+        }
+
+        const input = JSON.parse(analysisStored);
         setInputData(input);
 
         const fetchKeywords = async () => {
@@ -144,7 +153,26 @@ export default function DiscoveryPage() {
         <div className="min-h-screen p-6 md:p-12 max-w-6xl mx-auto bg-gray-50">
             <div className="mb-8">
                 <h1 className="text-3xl font-bold mb-2" style={{ color: 'var(--color-secondary)' }}>Keyword Selection</h1>
-                <p className="text-gray-600">Select keywords that align with your target audience</p>
+                <div className="flex justify-between items-center">
+                    <p className="text-gray-600">Select keywords that align with your target audience</p>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => {
+                                const allKeywords = categories.flatMap(cat => cat.keywords);
+                                setSelectedKeywords(allKeywords);
+                            }}
+                            className="oceanic-btn oceanic-btn-outline text-sm"
+                        >
+                            Select All
+                        </button>
+                        <button
+                            onClick={() => setSelectedKeywords([])}
+                            className="oceanic-btn oceanic-btn-outline text-sm"
+                        >
+                            Deselect All
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div className="space-y-6 mb-24">
