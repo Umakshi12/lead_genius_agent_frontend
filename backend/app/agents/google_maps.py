@@ -221,7 +221,8 @@ class GoogleMapsScraper(BaseChannelScraper):
             
             # Check if we got any URLs
             if len(unique_urls) == 0:
-                self.logger.warning(f"No URLs harvested for {search_query}. This will result in 0 records.")
+                self.logger.warning(f"!!! [ALERT] No businesses found for '{search_query}'.")
+                self.logger.info("TIP: Check if Google Maps is blocking the IP or if the location is too specific/broad.")
                 await page.close()
                 return  # Exit early instead of processing empty list
             

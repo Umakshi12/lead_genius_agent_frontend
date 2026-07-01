@@ -121,10 +121,24 @@ class LeadGenerationAgent:
     Uses actual website scraping combined with LLM analysis for data enrichment.
     """
     
+    # Domains that should NEVER be considered primary lead websites (generic directories/platforms)
+    DOMAIN_BLOCKLIST = {
+        "yelp.com", "yellowpages.com", "facebook.com", "instagram.com", 
+        "linkedin.com", "twitter.com", "tripadvisor.com", "booking.com",
+        "glassdoor.com", "crunchbase.com", "clutch.co", "g2.com",
+        "indeed.com", "monster.com", "expedia.com", "youtube.com"
+    }
+
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=120.0, max_retries=3)
         self.scraper = WebScraper()
     
+    def _is_blocked_domain(self, website: Optional[str]) -> bool:
+        if not website: return False
+        domain = normalize_domain(website)
+        if not domain: return False
+        return any(blocked in domain for blocked in self.DOMAIN_BLOCKLIST)
+
     def _matches_customer_pattern(self, lead: CompanyLead, pattern) -> bool:
         """
         Binary match check (NO scoring).
@@ -188,21 +202,106 @@ class LeadGenerationAgent:
         
         return passed
     
+    def _build_icp_constraints(self, customer_pattern, location: Optional[str] = None) -> str:
+        """
+        Build a structured ICP constraints block for the LLM discovery prompt.
+        This ensures the LLM knows EXACTLY what kind of companies to return.
+        """
+        lines = []
+        
+        if customer_pattern:
+            if customer_pattern.typical_size:
+                lines.append(f"        - Target Company Size: {customer_pattern.typical_size}")
+                # Add explicit exclusions based on size
+                size_lower = customer_pattern.typical_size.lower()
+                if any(term in size_lower for term in ["smb", "small", "1-10", "10-50", "11-50", "1-50"]):
+                    lines.append("        - EXCLUDE: Fortune 500, large enterprises, publicly traded corporations, multinational companies")
+                    lines.append("        - PREFER: Local businesses, family-owned companies, startups, small agencies, independent shops")
+            
+            if customer_pattern.common_industries:
+                lines.append(f"        - Target Industries: {', '.join(customer_pattern.common_industries)}")
+            
+            if customer_pattern.geographic_focus:
+                lines.append(f"        - Geographic Focus: {customer_pattern.geographic_focus}")
+            
+            if customer_pattern.business_models:
+                lines.append(f"        - Business Models: {', '.join(customer_pattern.business_models)}")
+            
+            if customer_pattern.common_descriptors:
+                lines.append(f"        - Company Descriptors: {', '.join(customer_pattern.common_descriptors)}")
+        
+        if location:
+            lines.append(f"        - Location Priority: {location}")
+        
+        if not lines:
+            lines.append("        - No specific ICP constraints provided. Return diverse, real SMB companies.")
+        
+        return "\n".join(lines)
+    
+    def _is_enterprise_company(self, company_name: str, customer_pattern=None) -> bool:
+        """
+        Hardcoded blocklist to catch Fortune 500 / enterprise companies
+        that the LLM might still return despite prompt instructions.
+        Only blocks when customer_pattern indicates SMB targeting.
+        """
+        if not customer_pattern or not customer_pattern.typical_size:
+            return False  # No size constraint = don't block anything
+        
+        size_lower = customer_pattern.typical_size.lower()
+        is_targeting_smb = any(term in size_lower for term in [
+            "smb", "small", "1-10", "10-50", "11-50", "1-50", "startup", "micro"
+        ])
+        
+        if not is_targeting_smb:
+            return False  # Not targeting SMBs = don't block enterprises
+        
+        # Blocklist of well-known enterprise companies the LLM loves to suggest
+        enterprise_blocklist = [
+            "amazon", "google", "microsoft", "apple", "meta", "facebook",
+            "salesforce", "oracle", "ibm", "cisco", "intel", "nvidia",
+            "tesla", "netflix", "uber", "airbnb", "spotify", "twitter",
+            "adobe", "sap", "vmware", "dell", "hp", "hewlett",
+            "walmart", "target", "costco", "home depot", "lowes",
+            "mcdonalds", "starbucks", "coca cola", "pepsi",
+            "jpmorgan", "goldman sachs", "morgan stanley", "bank of america",
+            "deloitte", "mckinsey", "accenture", "pwc", "kpmg", "ey",
+            "boeing", "lockheed", "raytheon", "general electric", "ge ",
+            "johnson & johnson", "procter & gamble", "unilever",
+            "samsung", "sony", "lg electronics", "huawei",
+        ]
+        
+        name_lower = company_name.strip().lower()
+        return any(blocked in name_lower for blocked in enterprise_blocklist)
+    
     async def generate_leads(self, request: LeadGenerationRequest) -> LeadGenerationResult:
         """
         Main orchestration method for lead generation workflow.
         Executes channel discovery and lead enrichment in parallel for maximum speed.
+        Google Maps always runs as the primary channel.
+        Applies ICP filtering and lead scoring post-enrichment.
         """
         started_at = datetime.utcnow().isoformat()
         
-        # 1. Parallel Channel Discovery
-        # Create tasks for all channels to run simultaneously
+        # --- ENSURE GOOGLE MAPS IS PRIMARY ---
+        google_maps_variations = ["google maps", "googlemaps", "maps", "gmaps", "google map"]
+        channels = list(request.selected_channels)
+        
+        has_gmaps = any(ch.lower() in google_maps_variations for ch in channels)
+        if not has_gmaps and request.location:
+            channels.insert(0, "Google Maps")
+            print("[ORCHESTRATOR] Auto-added Google Maps as primary channel (location provided)")
+        elif has_gmaps:
+            gmaps_channel = next(ch for ch in channels if ch.lower() in google_maps_variations)
+            channels.remove(gmaps_channel)
+            channels.insert(0, gmaps_channel)
+        
+        # 1. Parallel Channel Discovery (Google Maps first)
         discovery_tasks = [
             self._discover_and_enrich_channel(
                 channel=channel,
                 request=request
             )
-            for channel in request.selected_channels
+            for channel in channels
         ]
         
         # Wait for all channels to complete
@@ -212,9 +311,25 @@ class LeadGenerationAgent:
         all_companies = []
         leads_by_channel = {}
         
+        # In-run deduplication
+        seen_domains = set()
+        seen_emails = set()
+        
         for channel_leads, channel_name in results:
-            all_companies.extend(channel_leads)
-            leads_by_channel[channel_name] = len(channel_leads)
+            deduped_leads = []
+            for lead in channel_leads:
+                if not should_skip_lead_in_run(lead, seen_domains, seen_emails):
+                    # Apply lead scoring
+                    lead.lead_score = score_lead(lead, request)
+                    deduped_leads.append(lead)
+                else:
+                    print(f"  ✗ DEDUP: Skipping duplicate lead: {lead.company_name}")
+            
+            all_companies.extend(deduped_leads)
+            leads_by_channel[channel_name] = len(deduped_leads)
+        
+        # Sort by lead score (highest first)
+        all_companies.sort(key=lambda l: l.lead_score or 0, reverse=True)
         
         completed_at = datetime.utcnow().isoformat()
         
@@ -222,7 +337,7 @@ class LeadGenerationAgent:
             total_leads=len(all_companies),
             leads_by_channel=leads_by_channel,
             companies=all_companies,
-            generation_summary=f"Generated {len(all_companies)} leads across {len(request.selected_channels)} channels",
+            generation_summary=f"Generated {len(all_companies)} ICP-matched leads across {len(request.selected_channels)} channels",
             started_at=started_at,
             completed_at=completed_at
         )
@@ -231,57 +346,113 @@ class LeadGenerationAgent:
         """
         Stream lead generation process yielding JSON lines.
         Yields events: "status", "lead", "summary", "error"
+        Google Maps always runs FIRST as the primary channel.
         """
         yield json.dumps({"type": "status", "data": "Starting lead generation..."}) + "\n"
+        
+        # --- ENSURE GOOGLE MAPS IS PRIMARY ---
+        google_maps_variations = ["google maps", "googlemaps", "maps", "gmaps", "google map"]
+        channels = list(request.selected_channels)  # Copy to avoid mutating original
+        
+        # Check if Google Maps is already in channels
+        has_gmaps = any(ch.lower() in google_maps_variations for ch in channels)
+        
+        if not has_gmaps and request.location:
+            # Auto-add Google Maps as primary when location is specified
+            channels.insert(0, "Google Maps")
+            yield json.dumps({"type": "status", "data": "Auto-added Google Maps as primary channel (location provided)"}) + "\n"
+        elif has_gmaps:
+            # Move Google Maps to front
+            gmaps_channel = next(ch for ch in channels if ch.lower() in google_maps_variations)
+            channels.remove(gmaps_channel)
+            channels.insert(0, gmaps_channel)
+        
         
         # We'll use a queue to collect results from multiple tasks
         queue = asyncio.Queue()
 
+        # Shared dedup state for streaming
+        seen_domains = set()
+        seen_emails = set()
+        
         async def worker(channel):
             try:
-                await queue.put({"type": "status", "data": f"Discovering leads from {channel}..."})
+                await queue.put({"type": "status", "data": f"Discovering ICP-matched leads from {channel}..."})
                 
-                # Discovery
+                # Discovery — now ICP-aware
                 leads = await self._discover_from_channel(
                     channel=channel,
                     keywords=request.selected_keywords,
                     industries=request.target_industries,
                     max_leads=request.max_leads_per_channel,
-                    location=request.location
+                    location=request.location,
+                    customer_pattern=request.customer_pattern,
+                    company_summary=request.company_summary
                 )
                 
                 if not leads:
-                     await queue.put({"type": "status", "data": f"No leads found in {channel}."})
+                     await queue.put({"type": "status", "data": f"No ICP-matched leads found in {channel}."})
                      return
 
                 await queue.put({"type": "status", "data": f"Found {len(leads)} leads in {channel}. Enriching..."})
 
-                # PATTERN FILTERING: DISABLED - was filtering out too many valid leads
-                # if request.customer_pattern:
-                #     print(f"\n🔍 Applying customer pattern filter...")
-                #     original_count = len(leads)
-                #     leads = [l for l in leads if self._matches_customer_pattern(l, request.customer_pattern)]
-                #     filtered_count = original_count - len(leads)
-                #     print(f"📊 Pattern filter: {original_count} leads → {len(leads)} leads ({filtered_count} filtered out)")
-                #     await queue.put({"type": "status", "data": f"Filtered to {len(leads)} pattern-matching leads"})
+                # POST-DISCOVERY ICP FILTER (re-enabled with softer threshold)
+                if request.customer_pattern:
+                    print(f"\n🔍 Applying ICP pattern filter...")
+                    original_count = len(leads)
+                    leads = [l for l in leads if self._matches_customer_pattern(l, request.customer_pattern)]
+                    filtered_count = original_count - len(leads)
+                    if filtered_count > 0:
+                        print(f"📊 ICP filter: {original_count} leads → {len(leads)} leads ({filtered_count} filtered out)")
+                        await queue.put({"type": "status", "data": f"ICP filter: kept {len(leads)}/{original_count} leads"})
                 
-                # if not leads:
-                #     await queue.put({"type": "status", "data": f"No leads passed pattern filter in {channel}"})
-                #     return
+                if not leads:
+                    await queue.put({"type": "status", "data": f"No leads passed ICP filter in {channel}. Try broader keywords."})
+                    return
                 
                 # Enrichment mechanism
-                semaphore = asyncio.Semaphore(5) # Limit concurrency per channel
+                semaphore = asyncio.Semaphore(8) # Moderated from 12 to 8 for better reliability
                 
                 async def enrich_one(lead):
                     async with semaphore:
+                        # Dedup check
+                        if should_skip_lead_in_run(lead, seen_domains, seen_emails):
+                            print(f"  ✗ DEDUP: Skipping duplicate: {lead.company_name}")
+                            return
+                        
                         enriched = await self._enrich_company_lead(lead, request.company_summary)
                         
+                        # Apply lead score
+                        score = score_lead(enriched, request)
+                        enriched.lead_score = score
+                        
+                        # --- QUALITY GATE: DISCARD VAGUE LEADS ---
+                        # 1. Minimum Score Threshold
+                        if score < 35:
+                            print(f"  ✗ QUALITY: Discarding low-score lead ({score}/100): {lead.company_name}")
+                            return
+                            
+                        # 2. Blocklist Check
+                        if self._is_blocked_domain(enriched.website):
+                            print(f"  ✗ QUALITY: Discarding directory/blocked domain: {enriched.website}")
+                            return
+                            
+                        # 3. Actionability Check (Must have at least one way to contact)
+                        has_contact = (
+                            len(enriched.email_addresses or []) > 0 or 
+                            len(enriched.phone_numbers or []) > 0 or 
+                            len(enriched.key_contacts or []) > 0 or
+                            enriched.linkedin_url or 
+                            enriched.facebook_url
+                        )
+                        if not has_contact:
+                            print(f"  ✗ QUALITY: Discarding dead lead (no contact methods): {lead.company_name}")
+                            return
+
                         # Yield the lead immediately
                         try:
-                           # Try Pydantic v2
                            data = enriched.model_dump()
                         except AttributeError:
-                           # Fallback to Pydantic v1
                            data = enriched.dict()
                            
                         await queue.put({"type": "lead", "data": data})
@@ -293,9 +464,9 @@ class LeadGenerationAgent:
                 print(f"Error in channel {channel}: {e}")
                 await queue.put({"type": "error", "message": str(e), "channel": channel})
 
-        # Launch workers
+        # Launch workers — Google Maps first (index 0), then others
         tasks = []
-        for channel in request.selected_channels:
+        for channel in channels:
             tasks.append(asyncio.create_task(worker(channel)))
 
         # Waiter task to signal end
@@ -318,25 +489,36 @@ class LeadGenerationAgent:
         request: LeadGenerationRequest
     ) -> tuple[List[CompanyLead], str]:
         """
-        Helper method to handle a single channel's full lifecycle (Discovery -> Enrichment)
+        Helper method to handle a single channel's full lifecycle (Discovery -> ICP Filter -> Enrichment)
         """
         print(f"[START] Processing channel: {channel}...")
         
-        # Step 1: Discover (LLM/Search)
+        # Step 1: Discover (LLM/Search) — now ICP-aware
         channel_leads = await self._discover_from_channel(
             channel=channel,
             keywords=request.selected_keywords,
             industries=request.target_industries,
             max_leads=request.max_leads_per_channel,
-            location=request.location
+            location=request.location,
+            customer_pattern=request.customer_pattern,
+            company_summary=request.company_summary
         )
         
         if not channel_leads:
             return [], channel
 
+        # Step 1.5: Post-discovery ICP filter
+        if request.customer_pattern:
+            original_count = len(channel_leads)
+            channel_leads = [l for l in channel_leads if self._matches_customer_pattern(l, request.customer_pattern)]
+            print(f"[ICP FILTER] {channel}: {original_count} → {len(channel_leads)} leads")
+            if not channel_leads:
+                return [], channel
+
         # Step 2: Enrich (Parallel Scraping with Safety Limit)
         # Limit to 10 concurrent connections to be polite and avoid blocking
-        semaphore = asyncio.Semaphore(10)
+        # Increase concurrency for faster batch processing
+        semaphore = asyncio.Semaphore(15)
         print(f"[ENRICH] Enriching {len(channel_leads)} leads from {channel} in parallel (Max 10 concurrent)...")
         
         async def enrich_with_limit(lead):
@@ -357,59 +539,111 @@ class LeadGenerationAgent:
         keywords: List[str], 
         industries: List[str],
         max_leads: int,
-        location: Optional[str] = None
+        location: Optional[str] = None,
+        customer_pattern = None,
+        company_summary: str = ""
     ) -> List[CompanyLead]:
         """
         Discover companies from a specific channel.
-        - For Google Maps: Uses real Playwright scraping
-        - For other channels: Uses LLM-based discovery
+        - For Google Maps: Uses real Playwright scraping (PRIMARY - most reliable)
+        - For other channels: Uses SEARCH-BACKED discovery (DuckDuckGo + LLM filtering)
+          to eliminate hallucination
         """
         
-        # GOOGLE MAPS: Use real scraping
-        # Support multiple channel name variations for better UX
+        # GOOGLE MAPS: Use real scraping (PRIMARY CHANNEL)
         google_maps_variations = ["google maps", "googlemaps", "maps", "gmaps", "google map"]
         if channel.lower() in google_maps_variations:
             return await self._discover_from_google_maps(keywords, location or "United States", max_leads)
         
-        # OTHER CHANNELS: Use LLM discovery
-        system_prompt = f"""You are a B2B Lead Discovery Agent.
-        Your task is to identify real companies that match the given criteria from the specified channel.
+        # --- ALL OTHER CHANNELS: SEARCH-BACKED DISCOVERY ---
+        # Step 1: Search DuckDuckGo for REAL companies (no hallucination possible)
+        # Step 2: Have LLM extract/filter/structure the real search results
+        # Step 3: Verify websites exist
         
-        Channel: {channel}
+        print(f"  [SEARCH-BACKED] Searching real companies for channel: {channel}")
         
-        For each company, provide:
-        - Company name (real, existing company)
-        - Website URL
-        - Industry
-        - Estimated company size (e.g., "1-10", "11-50", "51-200", "201-500", "500+")
-        - Location (City, Country)
-        - LinkedIn URL (if applicable)
+        # Build targeted search queries based on channel type
+        search_queries = self._build_search_queries(channel, keywords, industries, location, customer_pattern)
         
-        Return a JSON array of companies. Limit to {max_leads} companies.
-        Focus on companies that are likely to be found on {channel} and match the keywords/industries.
+        # Execute searches in parallel 
+        loop = asyncio.get_running_loop()
+        search_tasks = [
+            loop.run_in_executor(None, lambda q=q: self.scraper.search(q, max_results=5))
+            for q in search_queries
+        ]
+        all_search_results = await asyncio.gather(*search_tasks)
         
-        Output format:
+        # Flatten and deduplicate search results
+        raw_results = []
+        seen_urls = set()
+        for results in all_search_results:
+            for r in results:
+                url = r.get('href', '')
+                # Skip social media, news, and aggregator sites
+                skip_domains = ['linkedin.com', 'facebook.com', 'twitter.com', 'youtube.com',
+                               'yelp.com', 'bbb.org', 'wikipedia.org', 'crunchbase.com',
+                               'glassdoor.com', 'indeed.com', 'reddit.com', 'amazon.com']
+                if url and url not in seen_urls and not any(d in url for d in skip_domains):
+                    seen_urls.add(url)
+                    raw_results.append(r)
+        
+        if not raw_results:
+            print(f"  [SEARCH-BACKED] No search results found for {channel}")
+            return []
+        
+        print(f"  [SEARCH-BACKED] Got {len(raw_results)} unique search results. Extracting companies...")
+        
+        # Step 2: Have LLM extract company data from REAL search results
+        icp_constraints = self._build_icp_constraints(customer_pattern, location)
+        
+        search_context = "\n".join([
+            f"- Title: {r.get('title', 'N/A')}\n  URL: {r.get('href', 'N/A')}\n  Snippet: {r.get('body', 'N/A')}"
+            for r in raw_results[:30]  # Limit to 30 results for context window
+        ])
+        
+        system_prompt = f"""You are a Lead Extraction Agent. You are given REAL search results from the internet.
+Your job is to extract REAL company information from these search results.
+
+**CRITICAL: You must ONLY extract companies that appear in the search results below.**
+**DO NOT invent, guess, or hallucinate any company names or URLs.**
+**If a search result is not a company website, SKIP IT.**
+
+=== ICP FILTER (only include companies matching this) ===
+{icp_constraints}
+=== END ICP ===
+
+For each REAL company found in search results, extract:
+- company_name: The actual business name (from the search result title/snippet)
+- website: The actual URL from the search result (MUST be from the data provided)
+- industry: Inferred from context
+- company_size: Inferred from context (prefer SMBs unless ICP says otherwise)
+- location: Extracted from snippet if available
+
+Rules:
+1. ONLY return companies whose URLs appear in the search results
+2. Skip aggregator pages (directories, lists, "top 10" articles)
+3. Skip Fortune 500 companies if ICP targets SMBs
+4. Each company must look like a potential BUYER for: {company_summary[:200] if company_summary else 'the requesting company'}
+5. Return max {max_leads} companies
+
+Output JSON format:
+{{
+    "companies": [
         {{
-            "companies": [
-                {{
-                    "company_name": "Example Corp",
-                    "website": "https://example.com",
-                    "industry": "Technology",
-                    "company_size": "51-200",
-                    "location": "San Francisco, USA",
-                    "linkedin_url": "https://linkedin.com/company/example"
-                }}
-            ]
+            "company_name": "...",
+            "website": "...",
+            "industry": "...",
+            "company_size": "...",
+            "location": "..."
         }}
-        """
+    ]
+}}"""
         
-        user_prompt = f"""
-        Keywords: {', '.join(keywords[:5])}
-        Industries: {', '.join(industries)}
-        
-        Find companies on {channel} that match these criteria.
-        Provide real, existing companies that would realistically be found on this platform.
-        """
+        user_prompt = f"""Extract real companies from these search results for channel \"{channel}\":
+
+{search_context}
+
+Only include companies that match the ICP criteria. Return max {max_leads} companies."""
         
         try:
             response = await self.client.chat.completions.create(
@@ -424,30 +658,138 @@ class LeadGenerationAgent:
             data = json.loads(response.choices[0].message.content)
             companies_data = data.get("companies", [])
             
-            # Convert to CompanyLead objects
-            leads = []
-            for comp in companies_data[:max_leads]:
-                lead = CompanyLead(
+            # Step 3: Parallel website verification
+            print(f"  [SEARCH-BACKED] Verifying {len(companies_data[:max_leads])} candidate websites in parallel...")
+            
+            async def verify_and_build(comp):
+                # Block enterprise companies
+                if self._is_enterprise_company(comp.get("company_name", ""), customer_pattern):
+                    print(f"  [BLOCKED] Enterprise: {comp.get('company_name')}")
+                    return None
+                
+                website = comp.get("website")
+                if not website:
+                    return None
+                
+                # Check URL existence in parallel
+                is_valid = await self._verify_website(website)
+                if not is_valid:
+                    return None
+                
+                return CompanyLead(
                     company_name=comp.get("company_name", "Unknown"),
-                    website=comp.get("website"),
+                    website=website,
                     industry=comp.get("industry"),
                     company_size=comp.get("company_size"),
                     location=comp.get("location"),
-                    linkedin_url=comp.get("linkedin_url"),
                     channel_source=channel,
                     keywords_matched=keywords[:3],
-                    confidence_score=0.6,
+                    confidence_score=0.8,
                     enrichment_status="pending",
-                    data_sources=[f"{channel}_discovery"],
+                    data_sources=[f"{channel}_search_backed", "duckduckgo_verified"],
                     discovered_at=datetime.utcnow().isoformat()
                 )
-                leads.append(lead)
+
+            # Execution batch
+            verify_tasks = [verify_and_build(c) for c in companies_data[:max_leads]]
+            verified_results = await asyncio.gather(*verify_tasks)
+            leads = [l for l in verified_results if l is not None]
             
+            print(f"  [SEARCH-BACKED] {channel}: {len(leads)} verified leads (from {len(companies_data)} extracted, {len(raw_results)} searched)")
             return leads
             
         except Exception as e:
-            print(f"Error discovering from {channel}: {e}")
+            print(f"Error in search-backed discovery for {channel}: {e}")
             return []
+    
+    def _build_search_queries(self, channel: str, keywords: List[str], 
+                              industries: List[str], location: Optional[str],
+                              customer_pattern=None) -> List[str]:
+        """
+        Build targeted DuckDuckGo search queries based on channel and ICP.
+        Returns 3-5 queries designed to find REAL small businesses.
+        """
+        queries = []
+        loc = location or ""
+        size_hint = ""
+        
+        if customer_pattern and customer_pattern.typical_size:
+            size_lower = customer_pattern.typical_size.lower()
+            if any(t in size_lower for t in ["smb", "small", "1-10", "10-50", "11-50"]):
+                size_hint = "small business"
+            elif "startup" in size_lower:
+                size_hint = "startup"
+        
+        channel_lower = channel.lower()
+        
+        # Channel-specific search strategies
+        if "linkedin" in channel_lower:
+            for kw in keywords[:3]:
+                queries.append(f"{kw} {size_hint} company {loc} site:linkedin.com/company".strip())
+            for ind in industries[:2]:
+                queries.append(f"{ind} {size_hint} companies {loc}".strip())
+        
+        elif "directory" in channel_lower or "industry" in channel_lower:
+            for kw in keywords[:3]:
+                queries.append(f"{kw} {size_hint} companies directory {loc}".strip())
+            for ind in industries[:2]:
+                queries.append(f"{ind} {size_hint} {loc} company list".strip())
+        
+        elif "clutch" in channel_lower or "g2" in channel_lower:
+            for kw in keywords[:3]:
+                queries.append(f"{kw} companies {loc} site:clutch.co OR site:g2.com".strip())
+        
+        else:
+            # Generic search strategy for any channel
+            for kw in keywords[:3]:
+                queries.append(f"{kw} {size_hint} company {loc}".strip())
+            for ind in industries[:2]:
+                queries.append(f"{ind} {size_hint} companies near {loc}".strip() if loc else f"{ind} {size_hint} companies")
+        
+        # Always add a broad industry + location query  
+        if loc and industries:
+            queries.append(f"{industries[0]} businesses in {loc}")
+        
+        # Deduplicate and limit
+        seen = set()
+        unique_queries = []
+        for q in queries:
+            q_clean = q.strip()
+            if q_clean and q_clean not in seen:
+                seen.add(q_clean)
+                unique_queries.append(q_clean)
+        
+        print(f"  [SEARCH QUERIES] Generated {len(unique_queries)} queries for {channel}:")
+        for q in unique_queries:
+            print(f"    → {q}")
+        
+        return unique_queries[:6]  # Max 6 queries per channel
+    
+    async def _verify_website(self, url: str) -> bool:
+        """
+        Quick check if a website URL actually resolves.
+        Returns True if the site responds with HTTP 200-399.
+        """
+        import httpx
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, verify=False, timeout=8.0) as client:
+                resp = await client.head(url, headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                })
+                is_valid = resp.status_code < 400
+                if not is_valid:
+                    print(f"    [VERIFY] {url} returned {resp.status_code}")
+                return is_valid
+        except Exception:
+            # If HEAD fails, try GET (some servers block HEAD)
+            try:
+                async with httpx.AsyncClient(follow_redirects=True, verify=False, timeout=8.0) as client:
+                    resp = await client.get(url, headers={
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    })
+                    return resp.status_code < 400
+            except Exception:
+                return False
     
     async def _discover_from_google_maps(
         self,
@@ -578,6 +920,7 @@ class LeadGenerationAgent:
             
         except Exception as e:
             error_msg = str(e).lower()
+            print(f"!!! [CRITICAL ERROR] in Google Maps Scraper: {type(e).__name__}: {e}")
             
             # Categorize error for better debugging
             if "browser" in error_msg or "playwright" in error_msg:
@@ -609,12 +952,17 @@ class LeadGenerationAgent:
         # Scrape Main Site + "About", "Contact", "Locations", "Team", "Leadership"
         website_content = ""
         scraped_data = {}
+        social_links = {}  # CRITICAL: Initialize here to prevent NameError
         
         if lead.website:
             try:
-                print(f"  DISCOVERY: Crawling {lead.website} and key subpages...")
-                scraped_data = await self.scraper.extract_contact_info(lead.website)
+                print(f"  [DISCOVERY] Deep crawling {lead.website}...")
+                # PERFORMANCE: Get everything in one visit
+                scraped_data = await self.scraper.deep_scrape(lead.website)
                 website_content = scraped_data.get("website_content", "")
+                social_links = scraped_data.get("social_links", {})
+                
+                print(f"  [SCRAPER] Got {len(website_content)} chars of content and {len(social_links)} social links.")
                 
                 # --- SELF-CORRECTION: CHECK FOR BAD URL ---
                 is_weak_content = len(website_content) < 500 or "domain" in website_content.lower()[:100]
@@ -630,13 +978,11 @@ class LeadGenerationAgent:
                         if new_url and new_url != lead.website and "linkedin" not in new_url and "facebook" not in new_url:
                             print(f"  [RECOVERY] Found new URL: {new_url}")
                             lead.website = new_url
-                            scraped_data = await self.scraper.extract_contact_info(lead.website)
+                            scraped_data = await self.scraper.deep_scrape(lead.website)
                             website_content = scraped_data.get("website_content", "")
+                            social_links = scraped_data.get("social_links", {})
                             print(f"  [RE-CRAWL] Got {len(website_content)} chars from new URL.")
             
-                # Also extract social media links directly from website
-                social_links = await self.scraper.extract_social_media_links(lead.website)
-                
                 found_phones = len(scraped_data.get("phone_numbers", []))
                 found_emails = len(scraped_data.get("email_addresses", []))
                 print(f"  [DISCOVERY] Found {found_phones} phones, {found_emails} emails on site.")
@@ -655,13 +1001,47 @@ class LeadGenerationAgent:
                         if new_url and "linkedin" not in new_url:
                             print(f"  [RECOVERY] Found new URL: {new_url}")
                             lead.website = new_url
-                            scraped_data = await self.scraper.extract_contact_info(lead.website)
+                            scraped_data = await self.scraper.deep_scrape(lead.website)
                             website_content = scraped_data.get("website_content", "")
-                            social_links = await self.scraper.extract_social_media_links(lead.website)
+                            social_links = scraped_data.get("social_links", {})
                             print(f"  [RE-CRAWL] Got {len(website_content)} chars.")
                 except Exception as ex:
                     print(f"  [ERROR] RECOVERY FAILED: {ex}")
-                    social_links = {}
+        else:
+            # No website — try to find one via search
+            print(f"  [WARN] No website for {lead.company_name}. Searching...")
+            try:
+                loop = asyncio.get_running_loop()
+                search_results = await loop.run_in_executor(
+                    None, lambda: self.scraper.search(f"{lead.company_name} {lead.location or ''} official website", max_results=1)
+                )
+                if search_results:
+                    lead.website = search_results[0].get('href')
+                    print(f"  [FOUND] Website: {lead.website}")
+                    scraped_data = await self.scraper.deep_scrape(lead.website)
+                    website_content = scraped_data.get("website_content", "")
+                    social_links = scraped_data.get("social_links", {})
+            except Exception as e:
+                print(f"  [ERROR] Website search failed: {e}")
+
+        # --- PHASE 1.5: MERGE SCRAPED DATA ONTO LEAD (before LLM) ---
+        # This ensures even if LLM fails, we still have real scraped data
+        if scraped_data.get("phone_numbers"):
+            for phone in scraped_data["phone_numbers"]:
+                phone_str = str(phone).strip()
+                # Avoid duplicates
+                existing_numbers = [p.get("number", "") for p in lead.phone_numbers]
+                if phone_str not in existing_numbers:
+                    has_whatsapp = phone_str.startswith('+') and len(phone_str) > 10
+                    lead.phone_numbers.append({"number": phone_str, "has_whatsapp": has_whatsapp})
+        
+        if scraped_data.get("email_addresses"):
+            for email in scraped_data["email_addresses"]:
+                if email not in lead.email_addresses:
+                    lead.email_addresses.append(email)
+        
+        if scraped_data.get("main_address") and not lead.main_address:
+            lead.main_address = scraped_data["main_address"]
 
         # --- PHASE 2: ENRICHMENT (External Verification) ---
         # Multi-source verification to reduce hallucination
@@ -769,36 +1149,40 @@ Return a single valid JSON object with this exact structure:
     ]
 }
 
-**REMEMBER: Finding executive names is THE TOP PRIORITY. Include ALL executives you find, even with minimal contact info. Empty key_decision_makers array is a FAILURE.**
-"""
+        **REMEMBER: Finding executive names is THE TOP PRIORITY. Include ALL executives you find, even with minimal contact info. Empty key_decision_makers array is a FAILURE.**
+        """
 
         user_prompt = f"""
-**Target Company:** {lead.company_name}
-**Official Website:** {lead.website}
+        **Target Company:** {lead.company_name}
+        **Official Website:** {lead.website}
 
-**SOURCE DATA 1: WEBSITE CONTENT (Home/About/Contact/Locations/Team)**
-(Contains raw text scraped from the official site)
-----------------------------------------------------------------
-{website_content[:20000]} 
-----------------------------------------------------------------
+        **SOURCE DATA 1: WEBSITE CONTENT (Home/About/Contact/Locations/Team)**
+        (Contains raw text scraped from the official site)
+        ----------------------------------------------------------------
+        {website_content[:20000]} 
+        ----------------------------------------------------------------
 
-**SOURCE DATA 2: EXTERNAL VERIFICATION (Search Results)**
-(Use this to cross-reference and fill gaps - ESPECIALLY for finding executives)
-----------------------------------------------------------------
-{search_context}
-----------------------------------------------------------------
+        **SOURCE DATA 2: EXTERNAL VERIFICATION (Search Results)**
+        (Use this to cross-reference and fill gaps - ESPECIALLY for finding executives)
+        ----------------------------------------------------------------
+        {search_context}
+        ----------------------------------------------------------------
 
-**INSTRUCTIONS:**
-1. Analyze BOTH sources above to complete the JSON profile for {lead.company_name}
-2. **TOP PRIORITY**: Extract ALL executive names and titles from search results (especially LinkedIn results)
-3. The search results likely contain executive directory links - extract names from those snippets
-4. For missing contact details, use "Not Publicly Disclosed"
-5. **NO GUESSWORK** - Only include what you actually see
-6. Check for WhatsApp business links or international phone formats
-7. Map executives to appropriate role categories (Decision Maker for C-suite, etc.)
+        **INSTRUCTIONS:**
+        1. Analyze BOTH sources above to complete the JSON profile for {lead.company_name}
+        2. **TOP PRIORITY**: Extract ALL executive names and titles from search results (especially LinkedIn results)
+        3. The search results likely contain executive directory links - extract names from those snippets
+        4. For missing contact details, use "Not Publicly Disclosed"
+        5. **NO GUESSWORK** - Only include what you actually see
+        6. Check for WhatsApp business links or international phone formats
+        7. Map executives to appropriate role categories (Decision Maker for C-suite, etc.)
 
-**Return the complete JSON now:**
-"""
+        **Return the complete JSON now:**
+        """
+        # Ensure we have at least SOME diagnostic info
+        if not website_content and not search_context:
+            print(f"  [ERROR] No source data for {lead.company_name}. Skipping LLM.")
+            return lead
 
         try:
             print("  [LLM] AGENT: Analyzing data with ReAct Logic...")
@@ -914,9 +1298,11 @@ Return a single valid JSON object with this exact structure:
                 print(f"    - Executives: {', '.join(exec_names)}")
 
         except Exception as e:
-            print(f"  [ERROR] AGENT ERROR: {e}")
-            lead.enrichment_status = "failed"
-            lead.confidence_score = 0.2
+            print(f"  [ERROR] AGENT ERROR for {lead.company_name}: {e}")
+            import traceback
+            traceback.print_exc()
+            lead.enrichment_status = "partial" if lead.email_addresses or lead.phone_numbers else "failed"
+            lead.confidence_score = 0.4 if lead.email_addresses or lead.phone_numbers else 0.2
             
         return lead
 

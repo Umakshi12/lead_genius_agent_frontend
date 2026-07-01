@@ -177,86 +177,132 @@ class WebScraper:
             return 'https://' + url
         return url
 
-    async def extract_contact_info(self, url: str) -> Dict:
+    async def deep_scrape(self, url: str) -> Dict:
         """
-        Extract company contact information including:
-        - Main address
-        - Phone numbers
-        - Email addresses
-        - Branch/office locations with their contact details
+        PERFORMANCE OPTIMIZATION: Fetches multiple pages in parallel to maximize depth.
+        Returns a combined dictionary of contacts, socials, and content.
         """
-        contact_info = {
+        import random
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        ]
+        headers = {'User-Agent': random.choice(user_agents)}
+        
+        results = {
             'main_address': None,
             'phone_numbers': [],
             'email_addresses': [],
-            'branches': [],  # List of {name, address, phone, email}
-            'website_content': "" # Captured text for LLM analysis
+            'branches': [],
+            'website_content': "",
+            'social_links': {
+                'linkedin_url': None, 'twitter_url': None, 'facebook_url': None,
+                'instagram_url': None, 'youtube_url': None, 'github_url': None,
+                'whatsapp_url': None, 'tiktok_url': None, 'pinterest_url': None
+            }
         }
-        
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
-        
-        async with httpx.AsyncClient(follow_redirects=True, verify=False) as client:
-            soup = None
+
+        async with httpx.AsyncClient(follow_redirects=True, verify=False, timeout=10.0) as client:
             try:
-                # Try to fetch main page and contact page
-                pages_to_check = [url]
+                # 1. Fetch Main Page
+                resp = await client.get(url, headers=headers)
+                if resp.status_code != 200:
+                    # Try once more with a different UA if blocked
+                    headers['User-Agent'] = random.choice(user_agents)
+                    resp = await client.get(url, headers=headers)
+                    if resp.status_code != 200:
+                        return results
+
+                soup = BeautifulSoup(resp.text, 'html.parser')
                 
-                # Common contact page URLs
+                # 2. Extract Socials and Contacts from Main Page
+                results['social_links'] = self._extract_socials_from_soup(soup)
+                self._extract_from_soup(soup, results)
+                
+                # 3. Intelligent Subpage Discovery
                 base_url = url.rstrip('/')
-                contact_pages = [
-                    f"{base_url}/contact",
-                    f"{base_url}/contact-us",
-                    f"{base_url}/locations",
-                    f"{base_url}/about",
-                    f"{base_url}/about-us",
-                ]
+                other_pages = []
+                # Priority order for subpages
+                priority_keywords = ['contact', 'about', 'location', 'team', 'leadership', 'people', 'service', 'product', 'faq']
                 
-                # First get the main page to find contact links
-                resp = await client.get(url, headers=headers, timeout=15.0)
-                if resp.status_code == 200:
-                    soup = BeautifulSoup(resp.text, 'html.parser')
-                    
-                    # Look for contact page links
-                    for link in soup.find_all('a', href=True):
-                        href = link.get('href', '').lower()
-                        # Expanded keywords to find Team/Leadership pages too
-                        if any(keyword in href for keyword in ['contact', 'location', 'office', 'branch', 'store', 'team', 'people', 'leadership', 'management', 'board']):
-                            full_url = self._make_absolute_url(base_url, link['href'])
-                            if full_url not in pages_to_check:
-                                pages_to_check.append(full_url)
-                    
-                    # Extract from main page
-                    self._extract_from_soup(soup, contact_info)
+                for link in soup.find_all('a', href=True):
+                    href = link.get('href', '').lower()
+                    if any(k in href for k in priority_keywords):
+                        full_url = self._make_absolute_url(base_url, link['href'])
+                        # Skip if it's the same URL or an external link
+                        if full_url.startswith(base_url) and full_url != url and full_url not in other_pages:
+                            other_pages.append(full_url)
                 
-                # Check additional pages (limit to 3 to avoid too many requests)
-                for page_url in pages_to_check[1:4]:
-                    try:
-                        resp = await client.get(page_url, headers=headers, timeout=10.0)
-                        if resp.status_code == 200:
-                            soup = BeautifulSoup(resp.text, 'html.parser')
-                            self._extract_from_soup(soup, contact_info)
-                    except:
-                        continue
+                # 4. Parallel Fetch Subpages (Increase limit to 4 for better depth)
+                print(f"  [DEEP SCRAPE] Found {len(other_pages)} candidates. Crawling top 4 in parallel...")
+                subpage_tasks = [client.get(p_url, headers=headers, timeout=8.0) for p_url in other_pages[:4]]
+                subpage_resps = await asyncio.gather(*subpage_tasks, return_exceptions=True)
                 
-                # Deduplicate
-                contact_info['phone_numbers'] = list(set(contact_info['phone_numbers']))
-                contact_info['email_addresses'] = list(set(contact_info['email_addresses']))
+                for s_resp in subpage_resps:
+                    if isinstance(s_resp, httpx.Response) and s_resp.status_code == 200:
+                        s_soup = BeautifulSoup(s_resp.text, 'html.parser')
+                        self._extract_from_soup(s_soup, results)
+                        # Merge any new socials found on subpages
+                        new_socials = self._extract_socials_from_soup(s_soup)
+                        for k, v in new_socials.items():
+                            if v and not results['social_links'].get(k):
+                                results['social_links'][k] = v
+
+                # Deduplicate contacts
+                results['phone_numbers'] = list(set(results['phone_numbers']))
+                results['email_addresses'] = list(set(results['email_addresses']))
                 
-                # Log results
-                print(f"  [SUCCESS] Extracted contact info from {url}")
-                print(f"  Main address: {contact_info['main_address'][:50] if contact_info['main_address'] else 'Not found'}...")
-                # Capture a decent amount of text for the LLM (up to 4000 chars) from what we found
-                if not contact_info['website_content'] and soup:
-                     # Fallback: use what we have from the last soup
-                     contact_info['website_content'] = soup.get_text(separator=' ', strip=True)[:4000]
+                # Ensure we have at least SOME content if subpages failed
+                if not results['website_content']:
+                    results['website_content'] = soup.get_text(separator=' ', strip=True)[:10000]
                 
-                print(f"  Content length: {len(contact_info['website_content'])} chars")
-                print(f"  Phones: {len(contact_info['phone_numbers'])}, Emails: {len(contact_info['email_addresses'])}, Branches: {len(contact_info['branches'])}")
-                
+                return results
+
             except Exception as e:
-                print(f"Error extracting contact info from {url}: {e}")
+                print(f"Deep scrape failure for {url}: {e}")
+                return results
+
+    def _extract_socials_from_soup(self, soup: BeautifulSoup) -> Dict:
+        """Helper to find social links in a soup object."""
+        socials = {}
+        patterns = {
+            'linkedin_url': r'linkedin\.com/(?:company|in)/',
+            'twitter_url': r'(?:twitter\.com|x\.com)/',
+            'facebook_url': r'facebook\.com/',
+            'instagram_url': r'instagram\.com/',
+            'youtube_url': r'(?:youtube\.com|youtu\.be)/',
+            'whatsapp_url': r'(?:wa\.me|whatsapp\.com)/',
+            'tiktok_url': r'tiktok\.com/',
+            'pinterest_url': r'pinterest\.com/'
+        }
+
+        # Look in footer/header first for higher relevance
+        elements = soup.find_all(['footer', 'header', 'nav', 'div'], class_=lambda x: x and any(k in str(x).lower() for k in ['footer', 'head', 'social']))
+        links = []
+        for e in elements:
+            links.extend(e.find_all('a', href=True))
         
-        return contact_info
+        # Add all links as fallback
+        links.extend(soup.find_all('a', href=True))
+
+        for link in links:
+            href = link.get('href', '')
+            for key, pattern in patterns.items():
+                if re.search(pattern, href, re.I) and not socials.get(key):
+                    # Filter out share/plugin links
+                    if not any(x in href.lower() for x in ['/sharer', '/share', '/intent', '/plugins', '/watch?', '/p/']):
+                        socials[key] = self._normalize_url(href.split('?')[0])
+        return socials
+
+    async def extract_social_media_links(self, url: str) -> Dict[str, Optional[str]]:
+        # Backward compatibility - redirects to deep_scrape logic partially
+        res = await self.deep_scrape(url)
+        return res['social_links']
+
+    async def extract_contact_info(self, url: str) -> Dict:
+        # Backward compatibility
+        return await self.deep_scrape(url)
     
     def _extract_from_soup(self, soup: BeautifulSoup, contact_info: Dict):
         """Extract contact information from a BeautifulSoup object."""

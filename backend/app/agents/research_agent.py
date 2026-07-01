@@ -7,7 +7,7 @@ from app.services.web_scraper import WebScraper
 class ResearchAgent:
     def __init__(self):
         self.scraper = WebScraper()
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=120.0, max_retries=3)
 
     async def _analyze_customer_patterns(self, customers_text: str) -> dict:
         """

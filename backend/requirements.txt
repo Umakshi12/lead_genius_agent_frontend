@@ -7,3 +7,13 @@ beautifulsoup4
 python-multipart
 python-dotenv
 ddgs
+sqlalchemy
+asyncpg
+aioredis
+nest_asyncio
+jose
+python-jose[cryptography]
+passlib
+bcrypt
+APScheduler
+aiosqlite

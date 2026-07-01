@@ -1,5 +1,6 @@
 from pydantic import BaseModel, HttpUrl, Field
 from typing import List, Optional
+import uuid
 
 class CompanyInput(BaseModel):
     company_name: str
@@ -102,6 +103,7 @@ class DiscoveryResult(BaseModel):
 
 # Lead Generation Schemas
 class LeadGenerationRequest(BaseModel):
+    campaign_id: Optional[uuid.UUID] = Field(default=None, description="The ID of the campaign to associate these leads with")
     selected_channels: List[str] = Field(description="List of channel names to scrape")
     selected_keywords: List[str] = Field(description="Keywords to search for")
     target_industries: List[str] = Field(description="Target industries")

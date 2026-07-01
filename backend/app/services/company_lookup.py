@@ -19,7 +19,7 @@ class CompanyLookupService:
     """Service to auto-fetch company URL and industry from search engines."""
 
     def __init__(self):
-        self.openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=120.0, max_retries=3)
 
     async def lookup_company(self, company_name: str) -> dict:
         """

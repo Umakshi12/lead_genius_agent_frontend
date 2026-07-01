@@ -5,7 +5,7 @@ from app.models.schemas import DiscoveryInput, DiscoveryResult, KeywordData, Cha
 
 class DiscoveryAgent:
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=120.0, max_retries=3)
 
     async def propose_keywords(self, input_data: DiscoveryInput) -> KeywordProposal:
         system_prompt = """You are a Discovery & Market Intelligence Agent specialized in B2B lead generation.
