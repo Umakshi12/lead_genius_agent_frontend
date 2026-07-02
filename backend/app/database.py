@@ -54,7 +54,11 @@ import uuid
 # Security (RLS) enabled. Example format:
 #   postgresql+asyncpg://user:password@host:5432/database_name
 # In development we fall back to a local instance.
-DEFAULT_SQLITE_PATH = Path(__file__).resolve().parents[1] / "leadgen.db"
+if os.getenv("VERCEL"):
+    DEFAULT_SQLITE_PATH = Path("/tmp/leadgen.db")
+else:
+    DEFAULT_SQLITE_PATH = Path(__file__).resolve().parents[1] / "leadgen.db"
+    
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     f"sqlite+aiosqlite:///{DEFAULT_SQLITE_PATH.as_posix()}",

@@ -4,7 +4,7 @@ import { useContext } from 'react';
 
 export function useApi() {
     const { token } = useContext(AuthContext);
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? '' : 'http://localhost:8000');
+    const baseUrl = (typeof window !== 'undefined' && window.location.hostname !== 'localhost') ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 
     const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
         const headers: HeadersInit = {
