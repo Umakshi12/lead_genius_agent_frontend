@@ -12,17 +12,4 @@ services:
         sync: false
       - key: PORT
         value: 10000
-    
-  # Next.js Frontend
-  - type: web
-    name: lead-genius-frontend
-    runtime: node
-    buildCommand: "cd frontend && npm install && npm run build"
-    startCommand: "cd frontend && npm run start"
-    envVars:
-      - key: NODE_VERSION
-        value: 20.11.0
-      - key: NEXT_PUBLIC_API_URL
-        value: https://lead-genius-backend.onrender.com/api
-      - key: PORT
-        value: 3000
+

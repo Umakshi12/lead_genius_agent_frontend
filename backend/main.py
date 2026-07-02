@@ -44,6 +44,12 @@ def healthz():
     return {"status": "ok"}
 
 
+@app.get("/api")
+def api_root():
+    return {"message": "API is working"}
+
+
+
 from app.api import endpoints, leads, campaigns  # noqa: E402
 
 app.include_router(endpoints.router, prefix="/api")
