@@ -9,10 +9,7 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
 
-  // Environment variables available at build time
-  env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
-  },
+
 
   // Experimental features for better performance
   experimental: {
