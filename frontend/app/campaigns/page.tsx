@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useContext } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthContext } from '../context/AuthContext';
-import { useApi } from '../lib/api';
+import { useApi } from '../lib/apiClient';
 
 interface Campaign {
     id: string;

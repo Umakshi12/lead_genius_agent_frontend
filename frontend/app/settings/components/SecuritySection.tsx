@@ -1,6 +1,6 @@
 "use client";
 import { useState } from 'react';
-import { useApi } from '../../lib/api';
+import { useApi } from '../../lib/apiClient';
 
 export default function SecuritySection() {
     const { apiFetch } = useApi();

@@ -2,7 +2,7 @@
 import { useState, useEffect, useContext } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthContext } from '../context/AuthContext';
-import { useApi } from '../lib/api';
+import { useApi } from '../lib/apiClient';
 import LeadTable from './components/LeadTable';
 import LeadFilters from './components/LeadFilters';
 

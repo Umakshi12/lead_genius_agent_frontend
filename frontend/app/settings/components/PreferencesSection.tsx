@@ -1,6 +1,6 @@
 "use client";
 import { useState } from 'react';
-import { useApi } from '../../lib/api';
+import { useApi } from '../../lib/apiClient';
 
 interface PreferencesSectionProps {
     userData: any;

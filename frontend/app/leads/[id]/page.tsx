@@ -3,7 +3,7 @@ import { useState, useEffect, useContext } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { AuthContext } from '../../context/AuthContext';
-import { useApi } from '../../lib/api';
+import { useApi } from '../../lib/apiClient';
 
 export default function LeadDetailsPage() {
     const router = useRouter();
